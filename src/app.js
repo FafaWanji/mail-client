@@ -4,7 +4,8 @@ import { createGmail, AuthExpired } from './gmail.js';
 import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
-import { aliasAddress, extractAlias } from './alias.js';
+import { aliasAddress, extractAlias, senderAddress } from './alias.js';
+import { senderReport, senderKey } from './senders.js';
 import { RULE_CATALOG } from './rules.js';
 import { leakReport } from './leaks.js';
 
@@ -19,7 +20,6 @@ function el(tag, props = {}, ...kids) {
 }
 const decodeEntities = s => new DOMParser().parseFromString(s, 'text/html').documentElement.textContent;
 const senderName = from => from.replace(/<[^>]*>/, '').replace(/"/g, '').trim() || from;
-const senderAddress = from => (from.match(/[^\s<>"]+@[^\s<>"]+/) || [''])[0].toLowerCase();
 
 const accounts = [];            // connected this session: { kind, address, token, provider }
 let current = null;             // the account on screen
@@ -135,7 +135,8 @@ async function switchTo(account) {
   $('app').hidden = false;
   $('builder').hidden = true;
   renderAccounts();
-  scanRecords = load(`aliasScan:${me}`, []); // show the last scan at once, the new one updates it
+  try { localStorage.removeItem(`aliasScan:${me}`); } catch { /* old cache format, best effort */ }
+  scanRecords = load(`scan2:${me}`, []); // show the last scan at once, the new one updates it
   setAliasRecords();
   await refreshFolders();
   await openBox(BOXES.inbox);
@@ -149,7 +150,8 @@ $('signOut').onclick = () => location.reload(); // tokens live in memory only, s
 
 // ---------- views ----------
 function showView(name) {
-  for (const view of ['mail', 'rules', 'leaks']) $(`view-${view}`).hidden = view !== name;
+  for (const view of ['mail', 'senders', 'rules', 'leaks']) $(`view-${view}`).hidden = view !== name;
+  if (name === 'senders') renderSenders();
   if (name === 'rules') refreshRules();
   if (name === 'leaks') renderLeaks();
 }
@@ -337,7 +339,7 @@ async function saveRule(rule) {
 
 // ---------- aliases ----------
 async function scan() {
-  const account = current, key = `aliasScan:${account.address}`;
+  const account = current, key = `scan2:${account.address}`;
   const known = new Map(load(key, []).map(r => [r.id, r]));
   const onScreen = () => current === account; // the user may switch account while a scan runs
   let records;
@@ -364,6 +366,7 @@ function setAliasRecords() {
   aliasRecords = scanRecords.filter(r => r.alias);
   refreshSidebar();
   if (!$('view-leaks').hidden) renderLeaks();
+  if (!$('view-senders').hidden) renderSenders();
 }
 
 const aliasFilter = alias => ({ to: aliasAddress(me, alias) });
@@ -517,6 +520,38 @@ $('ruleFromMail').onclick = () => {
   openBuilder({ conditions });
 };
 
+// ---------- senders ----------
+const SENDERS_SHOWN = 100;
+
+function renderSenders() {
+  const report = senderReport(scanRecords, me).slice(0, SENDERS_SHOWN);
+  $('senders').replaceChildren(...report.map(entry => el('li', {},
+    el('span', { className: 'name', textContent: entry.key }),
+    el('span', { className: 'count', textContent: entry.count }),
+    el('button', { textContent: 'Show mail', onclick: () => openBox({ title: `From ${entry.key}`, filter: { from: entry.key } }) }),
+    el('button', { textContent: 'Trash all', onclick: () => trashSender(entry.key, false) }),
+    el('button', { textContent: 'Trash + block', onclick: () => trashSender(entry.key, true) }))));
+  if (!report.length) $('senders').append(el('li', { className: 'muted', textContent: 'No scanned mail yet.' }));
+}
+
+/** Trashes every mail from a sender. With `block`, a rule also trashes future mail from it. */
+async function trashSender(sender, block) {
+  const rule = { conditions: { senderContains: [sender] }, exceptions: {}, actions: { delete: true } };
+  const match = await run(() => provider.countMatching(rule));
+  if (!match) return;
+  if (!match.count && !block) return status(`No mail from ${sender} outside Trash.`);
+  const question = `Move ${match.count}${match.more ? '+' : ''} mails from ${sender} to Trash` +
+    `${block ? ', and send all future mail from it to Trash' : ''}?`;
+  if (!confirm(question)) return;
+  if (block && !(await run(() => provider.createRule(rule)))) return;
+  const changed = await run(() => provider.applyRuleToExisting(rule));
+  if (changed === undefined) return;
+  status(`${changed} mails from ${sender} moved to Trash.${block ? ' Future mail is blocked.' : ''}`);
+  scanRecords = scanRecords.filter(r => senderKey(r) !== sender);
+  save(`scan2:${me}`, scanRecords);
+  setAliasRecords();
+}
+
 // ---------- leaks ----------
 // shortcut: trust marks live in this browser only; move them into the mail account if they must survive a browser reset
 const trusted = () => load(`trusted:${me}`, {});
@@ -555,7 +590,7 @@ async function block(alias, domain) {
   if (changed === undefined) return;
   status(`Blocked. ${changed} mails moved to Trash.`);
   scanRecords = scanRecords.filter(r => !(r.alias === alias && r.domain === domain));
-  save(`aliasScan:${me}`, scanRecords);
+  save(`scan2:${me}`, scanRecords);
   setAliasRecords();
 }
 

@@ -27,6 +27,12 @@ export function aliasAddress(ownAddress, alias) {
   return `${local}+${alias}@${domain}`;
 }
 
+/** The sender's address in lower case, or '' when the header has none. */
+export function senderAddress(fromHeader) {
+  const found = (fromHeader || '').match(ADDRESS);
+  return found ? found[found.length - 1].toLowerCase() : '';
+}
+
 export function senderDomain(fromHeader) {
   const found = (fromHeader || '').match(ADDRESS);
   if (!found) return null;

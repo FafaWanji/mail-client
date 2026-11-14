@@ -36,6 +36,7 @@
       <p id="scanStatus" class="muted"></p>
       <ul id="aliases"></ul>
       <nav>
+        <button data-view="senders">Senders</button>
         <button data-view="rules">Rules</button>
         <button data-view="leaks">Leaks <span id="leakCount"></span></button>
         <button id="signOut">Sign out</button>
@@ -89,6 +90,12 @@
           <button>Save rule</button>
           <button type="button" id="cancelRule">Cancel</button>
         </form>
+      </section>
+
+      <section id="view-senders" hidden>
+        <h2>Senders</h2>
+        <p class="muted">Who sends you the most, counted over the scanned mails. "Trash all" searches the whole mailbox, not only the scanned part.</p>
+        <ul id="senders"></ul>
       </section>
 
       <section id="view-leaks" hidden>

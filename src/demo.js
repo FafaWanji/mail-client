@@ -1,5 +1,5 @@
 // In-memory stand-in for a mail account, opened with ?demo=1. No network, nothing is saved.
-import { extractAlias, senderDomain } from './alias.js';
+import { extractAlias, senderDomain, senderAddress } from './alias.js';
 import { toGmailFilter, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 
 const ME = 'demo@gmail.com';
@@ -23,6 +23,10 @@ export function createDemo() {
   const folders = [], rules = [];
   const each = (ids, fn) => { for (const m of mails) if (ids.includes(m.id)) fn(m); };
   const names = () => new Map(folders.map(f => [f.id, f.name]));
+  // Only the two conditions the demo screens use.
+  const matching = rule => mails.filter(m => !m.labels.has('TRASH') &&
+    (rule.conditions.senderContains || []).every(s => m.from.toLowerCase().includes(s)) &&
+    (rule.conditions.sentToAddresses || []).every(a => m.to.toLowerCase().includes(a)));
 
   return {
     name: 'Gmail',
@@ -56,9 +60,13 @@ export function createDemo() {
       return { id };
     },
     deleteRule: async id => { rules.splice(rules.findIndex(r => r.id === id), 1); },
-    applyRuleToExisting: async () => 0,
-    countMatching: async () => ({ count: 0, more: false }),
+    async applyRuleToExisting(rule) {
+      const hit = matching(rule);
+      for (const m of hit) if (rule.actions.delete) m.labels.add('TRASH');
+      return hit.length;
+    },
+    countMatching: async rule => ({ count: matching(rule).length, more: false }),
     scanAliases: async () => mails.filter(m => !m.labels.has('TRASH'))
-      .map(m => ({ id: m.id, alias: extractAlias(m.to, ME), domain: senderDomain(m.from) })),
+      .map(m => ({ id: m.id, alias: extractAlias(m.to, ME), domain: senderDomain(m.from), from: senderAddress(m.from) })),
   };
 }

@@ -179,8 +179,8 @@ test('scanAliases skips known ids', async () => {
   assert.equal(calls.filter(c => /\/messages\/\w+$/.test(path(c.url))).length, 2);
   assert.deepEqual(recs, [
     { id: '1', alias: 'spotify', domain: 'spotify.com' },
-    { id: '2', alias: 'uber', domain: 'uber.com' },
-    { id: '3', alias: null, domain: 'y.com' }]);
+    { id: '2', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com' },
+    { id: '3', alias: null, domain: 'y.com', from: 'b@y.com' }]);
 });
 
 test('scanAliases stops at 2000 ids', async () => {

@@ -1,4 +1,4 @@
-import { extractAlias, senderDomain } from './alias.js';
+import { extractAlias, senderDomain, senderAddress } from './alias.js';
 import { toGmailFilter, ruleToSearch, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 import { pickBody } from './mailbody.js';
 
@@ -183,7 +183,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
         if (!rec) {
           await scanSlot();
           const m = toMsg(await metadata(id));
-          rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from) };
+          rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from), from: senderAddress(m.from) };
           known.set(id, rec); // progress survives a failed scan: the caller can save `known` and resume
         }
         onProgress(++done, ids.length);

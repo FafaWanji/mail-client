@@ -178,7 +178,7 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       const records = found.map(m => {
         let rec = known.get(m.id);
         if (!rec) {
-          rec = { id: m.id, alias: extractAlias((m.toRecipients || []).map(address).join(', '), me), domain: senderDomain(address(m.from)) };
+          rec = { id: m.id, alias: extractAlias((m.toRecipients || []).map(address).join(', '), me), domain: senderDomain(address(m.from)), from: address(m.from).toLowerCase() };
           known.set(m.id, rec);
         }
         return rec;

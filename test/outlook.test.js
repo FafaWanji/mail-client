@@ -168,8 +168,8 @@ test('scanAliases reads pages, not single mails', async () => {
   });
   const known = new Map();
   assert.deepEqual(await provider.scanAliases(known), [
-    { id: '1', alias: 'uber', domain: 'uber.com' },
-    { id: '2', alias: null, domain: 'y.com' }]);
+    { id: '1', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com' },
+    { id: '2', alias: null, domain: 'y.com', from: 'b@y.com' }]);
   assert.equal(calls.length, 3);
 });
 
