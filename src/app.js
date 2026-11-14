@@ -284,7 +284,8 @@ async function scan() {
   try {
     scanRecords = await provider.scanAliases(known, (done, total) => { $('scanStatus').textContent = `Scanning ${done} / ${total}`; });
   } catch (error) {
-    $('scanStatus').textContent = '';
+    save(key, [...known.values()]); // keep what was read, the next scan continues from there
+    $('scanStatus').textContent = `Scan stopped at ${known.size} mails. Press the scan button to continue.`;
     if (error instanceof AuthExpired) showGate('Session expired. Sign in again.');
     else status(`Alias scan failed: ${error.message}`, true);
     return;

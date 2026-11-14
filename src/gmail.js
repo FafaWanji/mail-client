@@ -7,7 +7,7 @@ const PAGE = 50;          // mails per list page
 const SCAN_LIMIT = 2000;  // newest mails read by the alias scan
 const BATCH = 1000;       // Gmail's limit for batchModify
 const PARALLEL = 10;
-const RETRIES = 4;
+const RETRIES = 7;          // 0.5 s doubling: about a minute in total, enough for Gmail's per-minute quota to refill
 const HEADERS = ['From', 'To', 'Subject', 'Delivered-To'];
 
 export class AuthExpired extends Error {}
@@ -52,10 +52,13 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       if (body) headers['Content-Type'] = 'application/json';
       const res = await doFetch(url.toString(), { method, headers, body: body && JSON.stringify(body) });
       if (res.status === 401) throw new AuthExpired('Signed out. Sign in again.');
-      if ((res.status === 429 || res.status === 503) && attempt < RETRIES) { await sleep(500 * 2 ** attempt); continue; }
       const text = await res.text();
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
+      // Gmail reports a used-up quota as 403, not only as 429.
+      const busy = res.status === 429 || res.status === 503 ||
+        (res.status === 403 && /quota|rate limit/i.test(data?.error?.message || ''));
+      if (busy && attempt < RETRIES) { await sleep(500 * 2 ** attempt); continue; }
       if (!res.ok) throw new Error(`Gmail error ${res.status}${data?.error?.message ? `: ${data.error.message}` : ''}`);
       return data;
     }
@@ -154,7 +157,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     },
 
     /**
-     * Alias and sender domain of the newest mails. `known` (id -> record) is the cache: only new ids are fetched.
+     * Alias and sender domain of the newest mails. `known` (id -> record) is the cache: only new ids are fetched, and new records are added to it.
      * Records without an alias are returned too, so the cache stops them being fetched again.
      */
     async scanAliases(known, onProgress = () => {}) {
@@ -166,6 +169,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
         if (!rec) {
           const m = toMsg(await metadata(id));
           rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from) };
+          known.set(id, rec); // progress survives a failed scan: the caller can save `known` and resume
         }
         onProgress(++done, ids.length);
         return rec;

@@ -44,10 +44,37 @@ test('429 retries then succeeds', async () => {
   assert.deepEqual(sleeps, [500, 1000]);
 });
 
-test('429 five times gives up', async () => {
-  const { gmail, calls } = setup(() => reply(429, { error: { message: 'slow down' } }));
+test('429 gives up after 7 retries, about a minute of waiting', async () => {
+  const { gmail, calls, sleeps } = setup(() => reply(429, { error: { message: 'slow down' } }));
   await assert.rejects(gmail.listFolders(), /429.*slow down/);
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 8);
+  assert.ok(sleeps.reduce((a, b) => a + b) >= 60000);
+});
+
+const QUOTA = "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'";
+test('403 quota error is retried', async () => {
+  const { gmail, sleeps } = setup((u, c, i) => (i < 1 ? reply(403, { error: { message: QUOTA } }) : reply(200, { labels: [] })));
+  assert.deepEqual(await gmail.listFolders(), []);
+  assert.deepEqual(sleeps, [500]);
+});
+
+test('403 without quota is not retried', async () => {
+  const { gmail, calls } = setup(() => reply(403, { error: { message: 'Insufficient Permission' } }));
+  await assert.rejects(gmail.listFolders(), /403.*Insufficient/);
+  assert.equal(calls.length, 1);
+});
+
+test('scanAliases keeps finished records in known when it fails', async () => {
+  const { gmail } = setup(u => {
+    const p = path(u);
+    if (p === '/profile') return reply(200, { emailAddress: 'me@gmail.com' });
+    if (p === '/messages') return reply(200, { messages: [{ id: '2' }, { id: '9' }] });
+    if (p.endsWith('/2')) return reply(200, meta('2', { To: 'me+uber@gmail.com', From: 'a@uber.com' }));
+    return reply(400, { error: { message: 'boom' } });
+  });
+  const known = new Map();
+  await assert.rejects(gmail.scanAliases(known), /boom/);
+  assert.equal(known.get('2').alias, 'uber');
 });
 
 test('other errors carry status and message', async () => {
