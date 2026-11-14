@@ -44,11 +44,25 @@ test('429 retries then succeeds', async () => {
   assert.deepEqual(sleeps, [500, 1000]);
 });
 
-test('429 gives up after 7 retries, about a minute of waiting', async () => {
+test('429 gives up after 9 retries, about two minutes of waiting', async () => {
   const { gmail, calls, sleeps } = setup(() => reply(429, { error: { message: 'slow down' } }));
   await assert.rejects(gmail.listFolders(), /429.*slow down/);
-  assert.equal(calls.length, 8);
-  assert.ok(sleeps.reduce((a, b) => a + b) >= 60000);
+  assert.equal(calls.length, 10);
+  assert.ok(sleeps.reduce((a, b) => a + b) >= 120000);
+  assert.ok(Math.max(...sleeps) <= 32000);
+});
+
+test('scanAliases spaces its requests to stay under the quota', async () => {
+  const { gmail, sleeps } = setup(u => {
+    const p = path(u);
+    if (p === '/profile') return reply(200, { emailAddress: 'me@gmail.com' });
+    if (p === '/messages') return reply(200, { messages: [{ id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }] });
+    return reply(200, meta('x', { To: 'me@gmail.com', From: 'a@b.c' }));
+  });
+  await gmail.scanAliases(new Map([['4', { id: '4', alias: null, domain: null }]]));
+  assert.equal(sleeps.length, 2);              // 3 fetched, the first goes at once, the cached one never waits
+  assert.ok(sleeps.every(ms => ms > 0 && ms <= 300));
+  assert.ok(sleeps[1] > 100);                  // slots are 100 ms apart
 });
 
 const QUOTA = "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'";

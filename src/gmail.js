@@ -7,7 +7,8 @@ const PAGE = 50;          // mails per list page
 const SCAN_LIMIT = 2000;  // newest mails read by the alias scan
 const BATCH = 1000;       // Gmail's limit for batchModify
 const PARALLEL = 10;
-const RETRIES = 7;          // 0.5 s doubling: about a minute in total, enough for Gmail's per-minute quota to refill
+const RETRIES = 9;          // waits 0.5 s doubling to 32 s: about two minutes, Gmail's quota refills per minute
+const SCAN_GAP = 100;       // ms between scan requests: 10 per second is 3,000 of the 15,000 quota units per minute
 const HEADERS = ['From', 'To', 'Subject', 'Delivered-To'];
 
 export class AuthExpired extends Error {}
@@ -58,10 +59,19 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       // Gmail reports a used-up quota as 403, not only as 429.
       const busy = res.status === 429 || res.status === 503 ||
         (res.status === 403 && /quota|rate limit/i.test(data?.error?.message || ''));
-      if (busy && attempt < RETRIES) { await sleep(500 * 2 ** attempt); continue; }
+      if (busy && attempt < RETRIES) { await sleep(Math.min(500 * 2 ** attempt, 32000)); continue; }
       if (!res.ok) throw new Error(`Gmail error ${res.status}${data?.error?.message ? `: ${data.error.message}` : ''}`);
       return data;
     }
+  }
+
+  // The scan is the one bulk reader. Bursting it empties the per-minute quota, so its requests take turns.
+  let nextSlot = 0;
+  async function scanSlot() {
+    const now = Date.now();
+    const at = Math.max(now, nextSlot);
+    nextSlot = at + SCAN_GAP;
+    if (at > now) await sleep(at - now);
   }
 
   async function modify(ids, add, remove) {
@@ -167,6 +177,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       return pool(ids, async id => {
         let rec = known.get(id);
         if (!rec) {
+          await scanSlot();
           const m = toMsg(await metadata(id));
           rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from) };
           known.set(id, rec); // progress survives a failed scan: the caller can save `known` and resume
