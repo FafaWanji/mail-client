@@ -25,7 +25,7 @@ export function createDemo() {
   const names = () => new Map(folders.map(f => [f.id, f.name]));
   // Only the two conditions the demo screens use.
   const matching = rule => mails.filter(m => !m.labels.has('TRASH') &&
-    (rule.conditions.senderContains || []).every(s => m.from.toLowerCase().includes(s)) &&
+    (!rule.conditions.senderContains || rule.conditions.senderContains.some(s => m.from.toLowerCase().includes(s))) &&
     (rule.conditions.sentToAddresses || []).every(a => m.to.toLowerCase().includes(a)));
 
   return {
@@ -36,10 +36,12 @@ export function createDemo() {
     aliasCondition: address => ({ sentToAddresses: [address] }),
     async listMessages({ folderId, query, filter = {} } = {}) {
       const trash = Boolean(filter.trash);
-      const words = [query, filter.to, filter.from].filter(Boolean).map(w => w.toLowerCase());
+      const words = [query, filter.to].filter(Boolean).map(w => w.toLowerCase());
+      const senders = [].concat(filter.from || []);
       const messages = mails.filter(m =>
         m.labels.has('TRASH') === trash &&
-        (trash || words.length || folderId === 'ALL' || m.labels.has(folderId || 'INBOX')) &&
+        (trash || words.length || senders.length || folderId === 'ALL' || m.labels.has(folderId || 'INBOX')) &&
+        (!senders.length || senders.some(s => m.from.toLowerCase().includes(s))) &&
         words.every(w => `${m.from} ${m.to} ${m.subject}`.toLowerCase().includes(w)));
       return { messages, nextPageToken: null };
     },

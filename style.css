@@ -49,6 +49,7 @@ main > section { height: 100%; overflow-y: auto; padding: 12px; }
 #rules li, #senders li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
 #rules li span, #senders li span.name { flex: 1; overflow-wrap: anywhere; }
 #senders { max-width: 760px; }
+#senders li { cursor: pointer; }
 #builder { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; max-width: 760px; }
 .rule-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .rule-row .value { flex: 1; display: flex; gap: 6px; min-width: 180px; }

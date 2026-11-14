@@ -40,6 +40,12 @@ function replaySearch(rule) {
   return parts.length ? parts.join(' AND ') : null;
 }
 
+// One sender, or a list of senders of which any may match.
+function fromSearch(from) {
+  const list = [].concat(from || []).map(f => `from:${f}`);
+  return list.length > 1 ? `(${list.join(' OR ')})` : list[0];
+}
+
 /** Outlook provider (Microsoft Graph). Same methods as the Gmail provider. */
 export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.fetch(...a), sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
   let own;
@@ -109,7 +115,7 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       if (pageToken) {
         page = await api(pageToken);
       } else {
-        const search = [query, filter.to && `to:${filter.to}`, filter.from && `from:${filter.from}`].filter(Boolean).join(' AND ');
+        const search = [query, filter.to && `to:${filter.to}`, fromSearch(filter.from)].filter(Boolean).join(' AND ');
         const folder = filter.trash ? 'deleteditems' : folderId === 'ALL' ? null : folderId || (search ? null : 'inbox');
         const params = { $top: PAGE, $select: SELECT };
         if (search) params.$search = `"${search.replaceAll('"', '')}"`; // Graph does not allow sorting together with search

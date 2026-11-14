@@ -95,6 +95,13 @@
       <section id="view-senders" hidden>
         <h2>Senders</h2>
         <p class="muted">Who sends you the most, counted over the scanned mails. "Trash all" searches the whole mailbox, not only the scanned part.</p>
+        <div class="toolbar">
+          <label><input type="checkbox" id="sendersAll"> All</label>
+          <button id="sendersShow">Show mail</button>
+          <button id="sendersTrash">Trash all</button>
+          <button id="sendersBlock">Trash + block</button>
+          <span id="sendersPicked" class="muted"></span>
+        </div>
         <ul id="senders"></ul>
       </section>
 

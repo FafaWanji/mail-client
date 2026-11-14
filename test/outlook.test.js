@@ -198,3 +198,12 @@ test('gmail turns a filter into a search', async () => {
   assert.equal(calls[1].url.searchParams.get('q'), 'in:trash');
   assert.deepEqual(provider.aliasCondition('me+a@gmail.com'), { sentToAddresses: ['me+a@gmail.com'] });
 });
+
+test('several senders in one filter', async () => {
+  const g = setup(() => reply(200, {}), createGmail);
+  await g.provider.listMessages({ filter: { from: ['a.com', 'b@gmail.com'] } });
+  assert.equal(g.calls[0].url.searchParams.get('q'), 'from:("a.com" OR "b@gmail.com")');
+  const o = setup(() => reply(200, { value: [] }));
+  await o.provider.listMessages({ filter: { from: ['a.com', 'b@outlook.com'] } });
+  assert.equal(o.calls[0].url.searchParams.get('$search'), '"(from:a.com OR from:b@outlook.com)"');
+});

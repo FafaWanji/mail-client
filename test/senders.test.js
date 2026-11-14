@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { senderReport, senderKey } from '../src/senders.js';
+import { senderReport, senderKey, chunks } from '../src/senders.js';
 import { senderAddress } from '../src/alias.js';
 
 const rec = (from, n = 1) => Array.from({ length: n }, (_, i) => ({ id: `${from}${i}`, alias: null, domain: from.split('@')[1].split('.').slice(-2).join('.'), from }));
@@ -26,4 +26,9 @@ test('senderKey', () => {
 test('senderAddress', () => {
   assert.equal(senderAddress('Shop <News@Shop.com>'), 'news@shop.com');
   assert.equal(senderAddress('garbage'), '');
+});
+
+test('chunks', () => {
+  assert.deepEqual(chunks([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+  assert.deepEqual(chunks([], 2), []);
 });

@@ -109,9 +109,9 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
   return {
     ownAddress,
 
-    /** query: the user's own search text. filter: { to?, from?, trash? } built by the app, same for every provider. */
+    /** query: the user's own search text. filter: { to?, from? (one or a list), trash? } built by the app, same for every provider. */
     async listMessages({ folderId, query, filter = {}, pageToken } = {}) {
-      const q = [query, filter.to && `to:("${filter.to}")`, filter.from && `from:("${filter.from}")`, filter.trash && 'in:trash']
+      const q = [query, filter.to && `to:("${filter.to}")`, filter.from && `from:(${[].concat(filter.from).map(f => `"${f}"`).join(' OR ')})`, filter.trash && 'in:trash']
         .filter(Boolean).join(' ');
       const labelIds = folderId === 'ALL' ? undefined : folderId || (q ? undefined : 'INBOX');
       const page = await api('/messages', { params: { maxResults: PAGE, q, labelIds, pageToken } });

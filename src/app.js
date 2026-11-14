@@ -5,7 +5,7 @@ import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
 import { aliasAddress, extractAlias, senderAddress } from './alias.js';
-import { senderReport, senderKey } from './senders.js';
+import { senderReport, senderKey, chunks } from './senders.js';
 import { RULE_CATALOG } from './rules.js';
 import { leakReport } from './leaks.js';
 
@@ -134,6 +134,7 @@ async function switchTo(account) {
   $('gate').hidden = true;
   $('app').hidden = false;
   $('builder').hidden = true;
+  pickedSenders.clear();
   renderAccounts();
   try { localStorage.removeItem(`aliasScan:${me}`); } catch { /* old cache format, best effort */ }
   scanRecords = load(`scan2:${me}`, []); // show the last scan at once, the new one updates it
@@ -522,34 +523,83 @@ $('ruleFromMail').onclick = () => {
 
 // ---------- senders ----------
 const SENDERS_SHOWN = 100;
+const SENDERS_PER_RULE = 20;   // keeps one rule's search text well under Gmail's length limit
+const pickedSenders = new Set();
 
 function renderSenders() {
   const report = senderReport(scanRecords, me).slice(0, SENDERS_SHOWN);
-  $('senders').replaceChildren(...report.map(entry => el('li', {},
-    el('span', { className: 'name', textContent: entry.key }),
-    el('span', { className: 'count', textContent: entry.count }),
-    el('button', { textContent: 'Show mail', onclick: () => openBox({ title: `From ${entry.key}`, filter: { from: entry.key } }) }),
-    el('button', { textContent: 'Trash all', onclick: () => trashSender(entry.key, false) }),
-    el('button', { textContent: 'Trash + block', onclick: () => trashSender(entry.key, true) }))));
+  const shown = new Set(report.map(entry => entry.key));
+  for (const key of pickedSenders) if (!shown.has(key)) pickedSenders.delete(key);
+  $('senders').replaceChildren(...report.map(entry => {
+    const check = el('input', { type: 'checkbox', checked: pickedSenders.has(entry.key), ariaLabel: `Select ${entry.key}` });
+    const toggle = on => {
+      if (on) pickedSenders.add(entry.key); else pickedSenders.delete(entry.key);
+      check.checked = on;
+      showPicked(report.length);
+    };
+    check.onclick = event => { event.stopPropagation(); toggle(check.checked); };
+    return el('li', { onclick: () => toggle(!check.checked) },
+      check,
+      el('span', { className: 'name', textContent: entry.key }),
+      el('span', { className: 'count', textContent: entry.count }));
+  }));
   if (!report.length) $('senders').append(el('li', { className: 'muted', textContent: 'No scanned mail yet.' }));
+  $('sendersAll').onchange = () => {
+    pickedSenders.clear();
+    if ($('sendersAll').checked) for (const entry of report) pickedSenders.add(entry.key);
+    renderSenders();
+  };
+  showPicked(report.length);
 }
 
-/** Trashes every mail from a sender. With `block`, a rule also trashes future mail from it. */
-async function trashSender(sender, block) {
-  const rule = { conditions: { senderContains: [sender] }, exceptions: {}, actions: { delete: true } };
-  const match = await run(() => provider.countMatching(rule));
-  if (!match) return;
-  if (!match.count && !block) return status(`No mail from ${sender} outside Trash.`);
-  const question = `Move ${match.count}${match.more ? '+' : ''} mails from ${sender} to Trash` +
-    `${block ? ', and send all future mail from it to Trash' : ''}?`;
+function showPicked(total) {
+  $('sendersPicked').textContent = pickedSenders.size ? `${pickedSenders.size} selected` : 'Tick one or more senders.';
+  $('sendersAll').checked = total > 0 && pickedSenders.size === total;
+}
+
+function pickedList() {
+  if (!pickedSenders.size) status('Tick at least one sender first.', true);
+  return [...pickedSenders];
+}
+const namesOf = list => (list.length <= 5 ? list.join(', ') : `${list.slice(0, 5).join(', ')} and ${list.length - 5} more`);
+
+$('sendersShow').onclick = () => {
+  const senders = pickedList();
+  if (senders.length) openBox({ title: `From ${namesOf(senders)}`, filter: { from: senders } });
+};
+$('sendersTrash').onclick = () => trashSenders(pickedList(), false);
+$('sendersBlock').onclick = () => trashSenders(pickedList(), true);
+
+/** Trashes every mail from the given senders. With `block`, rules also trash future mail from them. */
+async function trashSenders(senders, block) {
+  if (!senders.length) return;
+  const rules = chunks(senders, SENDERS_PER_RULE)
+    .map(part => ({ conditions: { senderContains: part }, exceptions: {}, actions: { delete: true } }));
+  let count = 0, more = false;
+  for (const rule of rules) {
+    const match = await run(() => provider.countMatching(rule));
+    if (!match) return;
+    count += match.count;
+    more ||= match.more;
+  }
+  if (!count && !block) return status('No mail from these senders outside Trash.');
+  const question = `Move ${count}${more ? '+' : ''} mails from ${namesOf(senders)} to Trash` +
+    `${block ? ', and send all future mail from them to Trash' : ''}?`;
   if (!confirm(question)) return;
-  if (block && !(await run(() => provider.createRule(rule)))) return;
-  const changed = await run(() => provider.applyRuleToExisting(rule));
-  if (changed === undefined) return;
-  status(`${changed} mails from ${sender} moved to Trash.${block ? ' Future mail is blocked.' : ''}`);
-  scanRecords = scanRecords.filter(r => senderKey(r) !== sender);
+  let changed = 0;
+  for (const rule of rules) {
+    if (block && !(await run(() => provider.createRule(rule)))) break;
+    const done = await run(() => provider.applyRuleToExisting(rule));
+    if (done === undefined) break;
+    changed += done;
+    // Drop what is finished at once, so a failure half way leaves the list matching the mailbox.
+    const gone = new Set(rule.conditions.senderContains);
+    scanRecords = scanRecords.filter(r => !gone.has(senderKey(r)));
+    for (const key of gone) pickedSenders.delete(key);
+  }
   save(`scan2:${me}`, scanRecords);
   setAliasRecords();
+  if (changed || block) status(`${changed} mails moved to Trash.${block ? ' Future mail from these senders is blocked.' : ''}`);
 }
 
 // ---------- leaks ----------

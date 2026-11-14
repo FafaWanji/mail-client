@@ -17,3 +17,10 @@ export function senderReport(records, ownAddress) {
   return [...counts].map(([key, count]) => ({ key, count }))
     .sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1));
 }
+
+/** Splits a list into pieces of at most `size`. */
+export function chunks(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
