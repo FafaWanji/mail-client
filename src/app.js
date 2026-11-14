@@ -1,5 +1,5 @@
-import { GOOGLE_CLIENT_ID } from '../config.js';
-import { signIn, getToken } from './auth.js';
+
+import { signIn, getToken, CLIENT_ID as GOOGLE_CLIENT_ID } from './auth.js';
 import { createGmail, AuthExpired } from './gmail.js';
 import { createDemo } from './demo.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
