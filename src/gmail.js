@@ -13,11 +13,11 @@ const HEADERS = ['From', 'To', 'Subject', 'Delivered-To'];
 
 export class AuthExpired extends Error {}
 
-async function pool(items, worker) {
+export async function pool(items, worker, parallel = PARALLEL) {
   const out = new Array(items.length);
   let next = 0;
   const run = async () => { while (next < items.length) { const i = next++; out[i] = await worker(items[i], i); } };
-  await Promise.all(Array.from({ length: Math.min(PARALLEL, items.length) }, run));
+  await Promise.all(Array.from({ length: Math.min(parallel, items.length) }, run));
   return out;
 }
 
@@ -109,9 +109,12 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
   return {
     ownAddress,
 
-    async listMessages({ folderId, query, pageToken } = {}) {
-      const labelIds = folderId === 'ALL' ? undefined : folderId || (query ? undefined : 'INBOX');
-      const page = await api('/messages', { params: { maxResults: PAGE, q: query, labelIds, pageToken } });
+    /** query: the user's own search text. filter: { to?, from?, trash? } built by the app, same for every provider. */
+    async listMessages({ folderId, query, filter = {}, pageToken } = {}) {
+      const q = [query, filter.to && `to:("${filter.to}")`, filter.from && `from:("${filter.from}")`, filter.trash && 'in:trash']
+        .filter(Boolean).join(' ');
+      const labelIds = folderId === 'ALL' ? undefined : folderId || (q ? undefined : 'INBOX');
+      const page = await api('/messages', { params: { maxResults: PAGE, q, labelIds, pageToken } });
       const messages = await pool(page?.messages || [], async m => toMsg(await metadata(m.id)));
       return { messages, nextPageToken: page?.nextPageToken || null };
     },
@@ -122,6 +125,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     },
 
     name: 'Gmail',
+    aliasCondition: address => ({ sentToAddresses: [address] }),
     support: GMAIL_SUPPORT,
     validateRule: toGmailFilter, // throws with a readable message when Gmail cannot run the rule
 

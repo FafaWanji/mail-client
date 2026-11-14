@@ -174,3 +174,58 @@ export function describeGmailFilter(filter, labelNames) {
   ];
   return `If ${when.join(' ') || '(any mail)'}${c.negatedQuery ? ` except ${c.negatedQuery}` : ''}: ${then.join(', ') || '(nothing)'}`;
 }
+
+// ---------- Outlook ----------
+
+const GMAIL_ONLY = new Set(['gmailStar', 'gmailNeverSpam']);
+export const OUTLOOK_SUPPORT = {
+  predicates: new Set(RULE_CATALOG.predicates.map(e => e.key)),
+  actions: new Set(RULE_CATALOG.actions.map(e => e.key).filter(key => !GMAIL_ONLY.has(key))),
+};
+
+// Graph wants these as recipient objects, the rule model holds plain addresses.
+const RECIPIENT_KEYS = new Set(['fromAddresses', 'sentToAddresses', 'forwardTo', 'forwardAsAttachmentTo', 'redirectTo']);
+const FOLDER_KEYS = new Set(['moveToFolder', 'copyToFolder']);
+const labelOf = key => [...RULE_CATALOG.predicates, ...RULE_CATALOG.actions].find(e => e.key === key)?.label || key;
+
+function graphPart(part, kind) {
+  const out = {};
+  for (const [key, value] of Object.entries(part || {})) {
+    if (!isSet(value) || (kind === 'actions' && value === false)) continue;
+    if (!OUTLOOK_SUPPORT[kind].has(key)) throw new Error(`Outlook rules cannot do "${labelOf(key)}".`);
+    out[key] = RECIPIENT_KEYS.has(key) ? [].concat(value).map(address => ({ emailAddress: { address } })) : value;
+  }
+  return out;
+}
+
+function describePart(part, folderNames) {
+  return Object.entries(part || {}).map(([key, value]) => {
+    if (value === true) return labelOf(key);
+    let text;
+    if (RECIPIENT_KEYS.has(key)) text = [].concat(value).map(r => r?.emailAddress?.address ?? r).join(', ');
+    else if (FOLDER_KEYS.has(key)) text = folderNames.get(value) || value;
+    else if (key === 'withinSizeRange') text = `${value.minimumSize}-${value.maximumSize} KB`;
+    else text = [].concat(value).join(', ');
+    return `${labelOf(key)}: ${text}`;
+  }).join('; ');
+}
+
+/** One readable line for an Outlook inbox rule (Graph messageRule). */
+export function describeOutlookRule(raw, folderNames) {
+  const when = describePart(raw.conditions, folderNames) || '(any mail)';
+  const unless = describePart(raw.exceptions, folderNames);
+  return `If ${when}${unless ? ` except ${unless}` : ''}: ${describePart(raw.actions, folderNames) || '(nothing)'}`;
+}
+
+/** Graph messageRule body for a rule. */
+export function toOutlookRule(rule, folderNames) {
+  const actions = graphPart(rule.actions, 'actions');
+  if (!Object.keys(actions).length) throw new Error('A rule needs at least one action.');
+  const body = { sequence: 1, isEnabled: true, actions };
+  const conditions = graphPart(rule.conditions, 'predicates');
+  const exceptions = graphPart(rule.exceptions, 'predicates');
+  if (Object.keys(conditions).length) body.conditions = conditions;
+  if (Object.keys(exceptions).length) body.exceptions = exceptions;
+  body.displayName = describeOutlookRule(body, folderNames).slice(0, 250);
+  return body;
+}
