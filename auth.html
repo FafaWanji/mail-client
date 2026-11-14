@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Signing in</title>
+<p>Signing in. This window closes by itself.</p>
+<script>
+  // Microsoft sends the sign-in window back here. Hand the answer to the app, same origin only, and close.
+  if (window.opener) window.opener.postMessage({ type: 'ms-auth', search: location.search }, location.origin);
+  window.close();
+</script>

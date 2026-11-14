@@ -12,13 +12,19 @@
   <div id="gate">
     <h1>Mail Client</h1>
     <p id="gateText"></p>
-    <button id="signIn" hidden>Sign in with Google</button>
+    <div id="gateAccounts"></div>
+    <button id="addGmailGate" hidden>Add a Gmail account</button>
+    <button id="addOutlookGate" hidden>Add an Outlook account</button>
     <p><a href="?demo=1">Open the demo with sample mail</a></p>
   </div>
 
   <div id="app" hidden>
     <aside>
-      <div id="account"></div>
+      <select id="accountSelect" aria-label="Account"></select>
+      <div class="toolbar">
+        <button id="addGmail" hidden>+ Gmail</button>
+        <button id="addOutlook" hidden>+ Outlook</button>
+      </div>
       <nav id="boxes">
         <button data-box="inbox">Inbox</button>
         <button data-box="all">All Mail</button>

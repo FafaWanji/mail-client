@@ -50,3 +50,13 @@ Try the app first without any setup: run `Start.bat` and click "Open the demo wi
 - Error `access_denied`: your address is missing in step 5.
 - Forward rules only work to an address you already verified in Gmail under
   Settings > Forwarding and POP/IMAP.
+
+## More Gmail accounts
+
+One Google setup covers all your Gmail accounts. For each extra account:
+
+1. In the Google console: **Google Auth Platform > Audience > Test users > Add users**, add that address.
+2. In the app: **+ Gmail** in the sidebar, pick that account, tick both permissions.
+
+The account list at the top of the sidebar switches between them. Each account has its own
+folders, rules, alias scan and leak view. For Outlook accounts see `SETUP-OUTLOOK.md`.

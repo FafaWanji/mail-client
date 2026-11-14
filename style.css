@@ -22,7 +22,9 @@ aside nav button, aside li button.link { text-align: left; }
 aside li { display: flex; gap: 4px; align-items: center; margin-bottom: 2px; }
 aside li button.link { flex: 1; border-color: transparent; background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 aside li button.link:hover { background: var(--soft); }
-#account { font-weight: 600; overflow-wrap: anywhere; }
+#accountSelect { width: 100%; font-weight: 600; }
+#gateAccounts { display: grid; gap: 6px; margin-bottom: 12px; }
+#gate > button { margin-right: 6px; }
 .count { opacity: .6; font-variant-numeric: tabular-nums; }
 .flag { color: #d33; font-weight: 600; }
 

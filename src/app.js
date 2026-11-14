@@ -1,6 +1,7 @@
 
-import { signIn, getToken, CLIENT_ID as GOOGLE_CLIENT_ID } from './auth.js';
+import { googleSignIn, microsoftSignIn, GOOGLE_ID, MICROSOFT_ID } from './auth.js';
 import { createGmail, AuthExpired } from './gmail.js';
+import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
 import { aliasAddress, extractAlias } from './alias.js';
@@ -20,8 +21,10 @@ const decodeEntities = s => new DOMParser().parseFromString(s, 'text/html').docu
 const senderName = from => from.replace(/<[^>]*>/, '').replace(/"/g, '').trim() || from;
 const senderAddress = from => (from.match(/[^\s<>"]+@[^\s<>"]+/) || [''])[0].toLowerCase();
 
-let provider, me;
-let box = { title: 'Inbox' };  // { title, folderId?, query? }
+const accounts = [];            // connected this session: { kind, address, token, provider }
+let current = null;             // the account on screen
+let provider, me;               // shortcuts for current.provider and current.address
+let box = { title: 'Inbox' };  // { title, folderId?, query?, filter? }
 let messages = [], nextPageToken = null;
 const selected = new Set();
 let openMail = null;
@@ -52,7 +55,7 @@ async function run(fn) {
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof AuthExpired) showGate('Session expired. Sign in again.');
+    if (error instanceof AuthExpired) expire(current);
     else status(error.message, true);
     return undefined;
   } finally {
@@ -60,34 +63,89 @@ async function run(fn) {
   }
 }
 
-// ---------- sign-in ----------
+// ---------- accounts ----------
+const KINDS = {
+  gmail: { label: 'Gmail', id: GOOGLE_ID, signIn: googleSignIn, create: createGmail },
+  outlook: { label: 'Outlook', id: MICROSOFT_ID, signIn: microsoftSignIn, create: createOutlook },
+};
+// Only kind and address are remembered, never a token. Each session signs in again.
+const remembered = () => load('accounts', []).filter(a => KINDS[a.kind]);
+const sameAccount = (a, b) => a.kind === b.kind && a.address === b.address;
+
 function showGate(text) {
   $('app').hidden = true;
   $('gate').hidden = false;
   $('gateText').textContent = text;
-  $('signIn').hidden = !GOOGLE_CLIENT_ID;
+  $('gateAccounts').replaceChildren(...remembered().map(known => {
+    const live = accounts.find(a => sameAccount(a, known));
+    return el('button', {
+      textContent: live ? `Open ${known.address}` : `Sign in to ${known.address} (${KINDS[known.kind].label})`,
+      onclick: () => (live ? switchTo(live) : addAccount(known.kind, known.address)),
+    });
+  }));
+  $('addGmailGate').hidden = !GOOGLE_ID;
+  $('addOutlookGate').hidden = !MICROSOFT_ID;
 }
 
-async function start() {
-  me = await provider.ownAddress();
+/** Signs in and returns the connected account. `hint` is the address to preselect. */
+async function connect(kind, hint) {
+  const account = { kind, token: await KINDS[kind].signIn(hint) };
+  account.provider = KINDS[kind].create({ getToken: () => account.token });
+  account.address = await account.provider.ownAddress();
+  const index = accounts.findIndex(a => sameAccount(a, account));
+  if (index >= 0) accounts[index] = account; else accounts.push(account);
+  save('accounts', [...remembered().filter(a => !sameAccount(a, account)), { kind, address: account.address }]);
+  return account;
+}
+
+async function addAccount(kind, hint) {
+  try {
+    await switchTo(await connect(kind, hint));
+  } catch (error) {
+    if ($('app').hidden) showGate(error.message);
+    else { renderAccounts(); status(error.message, true); }
+  }
+}
+
+function expire(account) {
+  const index = accounts.indexOf(account);
+  if (index >= 0) accounts.splice(index, 1);
+  showGate(`The session for ${account?.address || 'this account'} ended. Sign in again.`);
+}
+
+function renderAccounts() {
+  const others = remembered().filter(known => !accounts.some(a => sameAccount(a, known)));
+  $('accountSelect').replaceChildren(
+    ...accounts.map((a, i) => el('option', { value: `live:${i}`, textContent: a.address, selected: a === current })),
+    ...others.map((a, i) => el('option', { value: `known:${i}`, textContent: `${a.address} (sign in)` })));
+  $('accountSelect').onchange = () => {
+    const [type, index] = $('accountSelect').value.split(':');
+    if (type === 'live') switchTo(accounts[index]);
+    else addAccount(others[index].kind, others[index].address);
+  };
+  $('addGmail').hidden = !GOOGLE_ID;
+  $('addOutlook').hidden = !MICROSOFT_ID;
+}
+
+async function switchTo(account) {
+  current = account;
+  provider = account.provider;
+  me = account.address;
   $('gate').hidden = true;
   $('app').hidden = false;
-  $('account').textContent = me;
+  $('builder').hidden = true;
+  renderAccounts();
+  scanRecords = load(`aliasScan:${me}`, []); // show the last scan at once, the new one updates it
+  setAliasRecords();
   await refreshFolders();
-  await openBox({ title: 'Inbox' });
+  await openBox(BOXES.inbox);
   scan();
 }
 
-$('signIn').onclick = async () => {
-  try {
-    await signIn();
-    provider = createGmail({ getToken });
-    await start();
-  } catch (error) {
-    showGate(error.message);
-  }
-};
-$('signOut').onclick = () => location.reload(); // the token lives in memory only, so a reload signs out
+for (const [id, kind] of [['addGmail', 'gmail'], ['addGmailGate', 'gmail'], ['addOutlook', 'outlook'], ['addOutlookGate', 'outlook']]) {
+  $(id).onclick = () => addAccount(kind);
+}
+$('signOut').onclick = () => location.reload(); // tokens live in memory only, so a reload signs every account out
 
 // ---------- views ----------
 function showView(name) {
@@ -100,7 +158,7 @@ for (const button of document.querySelectorAll('[data-view]')) button.onclick = 
 const BOXES = {
   inbox: { title: 'Inbox' },
   all: { title: 'All Mail', folderId: 'ALL' },
-  trash: { title: 'Trash', query: 'in:trash' },
+  trash: { title: 'Trash', filter: { trash: true } },
 };
 for (const button of document.querySelectorAll('[data-box]')) button.onclick = () => openBox(BOXES[button.dataset.box]);
 
@@ -116,7 +174,7 @@ async function openBox(next) {
 }
 
 async function loadPage(pageToken) {
-  const page = await run(() => provider.listMessages({ folderId: box.folderId, query: box.query, pageToken }));
+  const page = await run(() => provider.listMessages({ folderId: box.folderId, query: box.query, filter: box.filter, pageToken }));
   if (!page) return;
   messages.push(...page.messages);
   nextPageToken = page.nextPageToken;
@@ -279,19 +337,26 @@ async function saveRule(rule) {
 
 // ---------- aliases ----------
 async function scan() {
-  const key = `aliasScan:${me}`;
+  const account = current, key = `aliasScan:${account.address}`;
   const known = new Map(load(key, []).map(r => [r.id, r]));
+  const onScreen = () => current === account; // the user may switch account while a scan runs
+  let records;
   try {
-    scanRecords = await provider.scanAliases(known, (done, total) => { $('scanStatus').textContent = `Scanning ${done} / ${total}`; });
+    records = await account.provider.scanAliases(known, (done, total) => {
+      if (onScreen()) $('scanStatus').textContent = `Scanning ${done} / ${total}`;
+    });
   } catch (error) {
     save(key, [...known.values()]); // keep what was read, the next scan continues from there
+    if (!onScreen()) return;
     $('scanStatus').textContent = `Scan stopped at ${known.size} mails. Press the scan button to continue.`;
-    if (error instanceof AuthExpired) showGate('Session expired. Sign in again.');
+    if (error instanceof AuthExpired) expire(account);
     else status(`Alias scan failed: ${error.message}`, true);
     return;
   }
-  save(key, scanRecords);
-  $('scanStatus').textContent = `Newest ${scanRecords.length} mails scanned.`;
+  save(key, records);
+  if (!onScreen()) return;
+  scanRecords = records;
+  $('scanStatus').textContent = `Newest ${records.length} mails scanned.`;
   setAliasRecords();
 }
 
@@ -301,13 +366,13 @@ function setAliasRecords() {
   if (!$('view-leaks').hidden) renderLeaks();
 }
 
-const aliasQuery = alias => `to:("${aliasAddress(me, alias)}")`;
+const aliasFilter = alias => ({ to: aliasAddress(me, alias) });
 
 function refreshSidebar() {
   const counts = new Map();
   for (const r of aliasRecords) counts.set(r.alias, (counts.get(r.alias) || 0) + 1);
   const rows = [...counts].sort((a, b) => b[1] - a[1]).map(([alias, count]) => el('li', {},
-    el('button', { className: 'link', textContent: `+${alias}`, onclick: () => openBox({ title: `+${alias}`, query: aliasQuery(alias) }) }),
+    el('button', { className: 'link', textContent: `+${alias}`, onclick: () => openBox({ title: `+${alias}`, filter: aliasFilter(alias) }) }),
     el('span', { className: 'count', textContent: count }),
     el('button', { textContent: 'Folder', title: `Sort +${alias} into a folder`, onclick: () => aliasToFolder(alias) })));
   $('aliases').replaceChildren(...rows);
@@ -320,7 +385,7 @@ function refreshSidebar() {
 async function aliasToFolder(alias) {
   const folderId = await pickFolder();
   if (!folderId) return;
-  await saveRule({ conditions: { sentToAddresses: [aliasAddress(me, alias)] }, exceptions: {}, actions: { moveToFolder: folderId } });
+  await saveRule({ conditions: provider.aliasCondition(aliasAddress(me, alias)), exceptions: {}, actions: { moveToFolder: folderId } });
 }
 $('rescan').onclick = scan;
 
@@ -383,7 +448,7 @@ function ruleRow(section, preset) {
     value: e.key,
     textContent: supported.has(e.key) ? e.label : `${e.label} (not on ${provider.name})`,
     disabled: !supported.has(e.key),
-    title: supported.has(e.key) ? '' : `${provider.name} filters cannot do this. Available on Outlook accounts.`,
+    title: supported.has(e.key) ? '' : `${provider.name} cannot do this.`,
   })));
   select.value = preset?.key || entries.find(e => supported.has(e.key)).key;
   const row = el('div', { className: 'rule-row' }, select);
@@ -448,7 +513,7 @@ $('ruleFromMail').onclick = () => {
   if (!openMail) return;
   const conditions = [{ key: 'fromAddresses', value: [senderAddress(openMail.from)] }];
   const alias = extractAlias(openMail.deliveredTo, me) ?? extractAlias(openMail.to, me);
-  if (alias) conditions.push({ key: 'sentToAddresses', value: [aliasAddress(me, alias)] });
+  if (alias) for (const [key, value] of Object.entries(provider.aliasCondition(aliasAddress(me, alias)))) conditions.push({ key, value });
   openBuilder({ conditions });
 };
 
@@ -466,7 +531,7 @@ function renderLeaks() {
       return el('li', {},
         el('span', { className: `domain ${d.trusted ? '' : 'flag'}`, textContent: `${d.domain}${foreign ? '' : ' (main sender)'}` }),
         el('span', { className: 'count', textContent: d.count }),
-        real ? el('button', { textContent: 'Show mail', onclick: () => openBox({ title: `+${entry.alias} from ${d.domain}`, query: `${aliasQuery(entry.alias)} from:("${d.domain}")` }) }) : null,
+        real ? el('button', { textContent: 'Show mail', onclick: () => openBox({ title: `+${entry.alias} from ${d.domain}`, filter: { ...aliasFilter(entry.alias), from: d.domain } }) }) : null,
         foreign && !d.trusted ? el('button', { textContent: 'Trust', onclick: () => trust(entry.alias, d.domain) }) : null,
         foreign && real ? el('button', { textContent: 'Block', onclick: () => block(entry.alias, d.domain) }) : null);
     })))));
@@ -483,7 +548,7 @@ function trust(alias, domain) {
 
 async function block(alias, domain) {
   if (!confirm(`Trash all mail from ${domain} to +${alias}, now and in future?`)) return;
-  const rule = { conditions: { sentToAddresses: [aliasAddress(me, alias)], senderContains: [domain] }, exceptions: {}, actions: { delete: true } };
+  const rule = { conditions: { ...provider.aliasCondition(aliasAddress(me, alias)), senderContains: [domain] }, exceptions: {}, actions: { delete: true } };
   const made = await run(() => provider.createRule(rule));
   if (!made) return;
   const changed = await run(() => provider.applyRuleToExisting(rule));
@@ -496,10 +561,12 @@ async function block(alias, domain) {
 
 // ---------- boot ----------
 if (new URLSearchParams(location.search).has('demo')) {
-  provider = createDemo();
-  start();
+  const demo = { kind: 'demo', provider: createDemo() };
+  demo.address = await demo.provider.ownAddress();
+  accounts.push(demo);
+  switchTo(demo);
 } else {
-  showGate(GOOGLE_CLIENT_ID
-    ? 'Sign in to read and sort your Gmail.'
-    : 'Not set up yet. Follow SETUP.md, then paste the client ID into config.js and reload.');
+  showGate(GOOGLE_ID || MICROSOFT_ID
+    ? 'Sign in to an account. Add more accounts later from the sidebar.'
+    : 'Not set up yet. Follow SETUP.md (Gmail) or SETUP-OUTLOOK.md, paste the client ID into config.js and reload.');
 }

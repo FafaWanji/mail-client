@@ -29,12 +29,13 @@ export function createDemo() {
     support: GMAIL_SUPPORT,
     validateRule: toGmailFilter,
     ownAddress: async () => ME,
-    async listMessages({ folderId, query } = {}) {
-      const trash = query === 'in:trash';
-      const words = trash || !query ? [] : [...query.matchAll(/"([^"]+)"/g)].map(m => m[1].toLowerCase());
+    aliasCondition: address => ({ sentToAddresses: [address] }),
+    async listMessages({ folderId, query, filter = {} } = {}) {
+      const trash = Boolean(filter.trash);
+      const words = [query, filter.to, filter.from].filter(Boolean).map(w => w.toLowerCase());
       const messages = mails.filter(m =>
         m.labels.has('TRASH') === trash &&
-        (trash || query || folderId === 'ALL' || m.labels.has(folderId || 'INBOX')) &&
+        (trash || words.length || folderId === 'ALL' || m.labels.has(folderId || 'INBOX')) &&
         words.every(w => `${m.from} ${m.to} ${m.subject}`.toLowerCase().includes(w)));
       return { messages, nextPageToken: null };
     },
