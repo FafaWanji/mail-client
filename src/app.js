@@ -622,12 +622,22 @@ $('sendersShow').onclick = () => {
 };
 $('sendersTrash').onclick = () => trashSenders(pickedList(), false);
 $('sendersBlock').onclick = () => trashSenders(pickedList(), true);
-
-/** Trashes every mail from the given senders. With `block`, rules also trash future mail from them. */
-async function trashSenders(senders, block) {
+$('sendersMove').onclick = async () => {
+  const senders = pickedList();
   if (!senders.length) return;
+  const folderId = await pickFolder();
+  if (folderId) trashSenders(senders, true, folderId);
+};
+
+/**
+ * Trashes every mail from the given senders. With `block`, rules also trash future mail from them.
+ * With `folderId`, moves into that folder instead of Trash (and the rules do the same).
+ */
+async function trashSenders(senders, block, folderId) {
+  if (!senders.length) return;
+  const where = folderId ? `to ${folders.find(f => f.id === folderId)?.name || 'the folder'}` : 'to Trash';
   const rules = chunks(senders, SENDERS_PER_RULE)
-    .map(part => ({ conditions: { senderContains: part }, exceptions: {}, actions: { delete: true } }));
+    .map(part => ({ conditions: { senderContains: part }, exceptions: {}, actions: folderId ? { moveToFolder: folderId } : { delete: true } }));
   let count = 0, more = false;
   for (const rule of rules) {
     const match = await run(() => provider.countMatching(rule));
@@ -636,8 +646,8 @@ async function trashSenders(senders, block) {
     more ||= match.more;
   }
   if (!count && !block) return status('No mail from these senders outside Trash.');
-  const question = `Move ${count}${more ? '+' : ''} mails from ${namesOf(senders)} to Trash` +
-    `${block ? ', and send all future mail from them to Trash' : ''}?`;
+  const question = `Move ${count}${more ? '+' : ''} mails from ${namesOf(senders)} ${where}` +
+    `${block ? `, and send all future mail from them ${where}` : ''}?`;
   if (!confirm(question)) return;
   let changed = 0;
   const receipts = [], made = [], records = [];
@@ -651,16 +661,17 @@ async function trashSenders(senders, block) {
     if (!done) break;
     receipts.push(done);
     changed += done.count;
-    // Drop what is finished at once, so a failure half way leaves the list matching the mailbox.
     const gone = new Set(rule.conditions.senderContains);
+    for (const key of gone) pickedSenders.delete(key);
+    if (folderId) continue; // moved mail stays in the mailbox, so its scan records stay
+    // Drop what is finished at once, so a failure half way leaves the list matching the mailbox.
     records.push(...scanRecords.filter(r => gone.has(senderKey(r))));
     scanRecords = scanRecords.filter(r => !gone.has(senderKey(r)));
-    for (const key of gone) pickedSenders.delete(key);
   }
   save(`scan2:${me}`, scanRecords);
   setAliasRecords();
-  offerUndo(`${block ? 'trash + block' : 'trash'} ${mailsText(changed)}`, receipts, { rules: made, records });
-  if (changed || block) status(`${changed} mails moved to Trash.${block ? ' Future mail from these senders is blocked.' : ''}`);
+  offerUndo(`${folderId ? 'move + rule' : block ? 'trash + block' : 'trash'} ${mailsText(changed)}`, receipts, { rules: made, records });
+  if (changed || block) status(`${changed} mails moved ${where}.${block ? ` Future mail from these senders goes ${where}.` : ''}`);
 }
 
 // ---------- leaks ----------
