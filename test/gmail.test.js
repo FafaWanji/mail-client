@@ -218,7 +218,7 @@ test('scanAliases skips known ids', async () => {
   const recs = await gmail.scanAliases(known);
   assert.equal(calls.filter(c => /\/messages\/\w+$/.test(path(c.url))).length, 2);
   assert.deepEqual(recs, [
-    { id: '1', alias: 'spotify', domain: 'spotify.com', size: 9 },
+    { id: '1', alias: 'spotify', domain: 'spotify.com', size: 9, folders: [] },
     { id: '2', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com', size: 0, folders: [] },
     { id: '3', alias: null, domain: 'y.com', from: 'b@y.com', size: 0, folders: [] }]);
 });
@@ -337,4 +337,23 @@ test('sendMail posts a base64url message in the parent thread', async () => {
   const mime = Buffer.from(calls[0].body.raw, 'base64url').toString('utf8');
   assert.match(mime, /^To: a@b\.com\r\nSubject: Re: x\r\n/);
   assert.match(mime, /In-Reply-To: <1@b>/);
+});
+
+test('scanAliases brings folder membership up to date for cached records', async () => {
+  const { gmail } = setup(u => {
+    const p = path(u);
+    if (p === '/profile') return reply(200, { emailAddress: 'me@gmail.com' });
+    if (p === '/labels') return reply(200, { labels: [{ id: 'L1', name: 'Music', type: 'user' }] });
+    if (p === '/messages') return reply(200, { messages: u.searchParams.get('labelIds') === 'L1' ? [{ id: 'b' }] : [{ id: 'a' }, { id: 'b' }] });
+    return reply(400, {});
+  });
+  const known = new Map([['a', { id: 'a', size: 1, folders: ['L1'] }], ['b', { id: 'b', size: 1, folders: [] }]]);
+  const recs = await gmail.scanAliases(known);
+  assert.deepEqual(recs.map(r => r.folders), [[], ['L1']]);
+});
+
+test('cleanup with no condition is refused, not the whole mailbox', async () => {
+  const { gmail, calls } = setup(() => reply(200, {}));
+  await assert.rejects(gmail.trashMessages({}), /at least one/);
+  assert.equal(calls.length, 0);
 });

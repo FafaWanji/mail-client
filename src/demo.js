@@ -18,6 +18,7 @@ const AGE_DAYS = [0, 1, 800, 2, 3, 1000, 5];
 const UNSUBSCRIBE = { 1: ['<https://example.com/one-click>', 'List-Unsubscribe=One-Click'], 2: ['<https://example.com/optout>', ''], 5: ['<mailto:leave@netflix.example?subject=stop>', ''] };
 const SIZE = [30e3, 25e3, 6e6, 12e3, 8e3, 7.5e6, 3e3];
 const cleanupHit = (m, f) => (!f.before || m.date < f.before) && (!f.larger || m.size > f.larger) && (!f.unread || m.unread);
+const cleanupGuard = f => { if (!f.before && !f.larger && !f.unread) throw new Error('Pick at least one cleanup condition.'); return f; };
 
 export function createDemo() {
   let nextId = 1;
@@ -67,8 +68,8 @@ export function createDemo() {
       for (const m of gone) mails.splice(mails.indexOf(m), 1);
       return gone.length;
     },
-    countMessages: async filter => ({ count: mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)).length, more: false }),
-    trashMessages: async filter => changed(mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)), m => m.labels.add('TRASH')),
+    countMessages: async filter => (cleanupGuard(filter), { count: mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)).length, more: false }),
+    trashMessages: async filter => cleanupGuard(filter) && changed(mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)), m => m.labels.add('TRASH')),
     // The demo keeps sent mail in a list instead of sending it.
     sent: [],
     async sendMail(mail) { this.sent.push(mail); },

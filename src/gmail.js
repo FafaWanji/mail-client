@@ -14,6 +14,13 @@ const HEADERS = ['From', 'To', 'Subject', 'Delivered-To'];
 
 export class AuthExpired extends Error {}
 
+// An empty cleanup filter would match the whole mailbox.
+function cleanupQuery({ before, larger, unread }) {
+  const q = gmailSearch('', { before, larger, unread });
+  if (!q) throw new Error('Pick at least one cleanup condition.');
+  return q;
+}
+
 /** Gmail search text for the user's query plus the app's filter (see listMessages). */
 export function gmailSearch(query, filter = {}) {
   return [query,
@@ -247,11 +254,11 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
 
     /** Cleanup: how many mails outside Trash match a filter, and moving all of them to Trash. */
     async countMessages(filter) {
-      const page = await api('/messages', { params: { q: gmailSearch('', filter), maxResults: 500 } });
+      const page = await api('/messages', { params: { q: cleanupQuery(filter), maxResults: 500 } });
       return { count: (page?.messages || []).length, more: Boolean(page?.nextPageToken) };
     },
     async trashMessages(filter) {
-      const ids = await listIds({ q: gmailSearch('', filter) }, Infinity);
+      const ids = await listIds({ q: cleanupQuery(filter) }, Infinity);
       return change(ids, ['TRASH'], [], new Map()); // a search never finds mail already in Trash
     },
 
@@ -268,7 +275,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       const me = await ownAddress();
       const ids = await listIds({}, limit);
       let done = 0;
-      return pool(ids, async id => {
+      const records = await pool(ids, async id => {
         let rec = known.get(id);
         if (rec?.size === undefined) { // records from before sizes were kept are read once more
           await scanSlot();
@@ -281,6 +288,11 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
         onProgress(++done, ids.length);
         return rec;
       });
+      // Cached records keep the labels of their first read. One id list per folder brings them up to date after moves.
+      // A folder's newest `limit` ids hold every one of its mails among the newest `limit` overall.
+      const inFolder = await Promise.all((await listFolders()).map(async f => [f.id, new Set(await listIds({ labelIds: f.id }, limit))]));
+      for (const rec of records) rec.folders = inFolder.filter(([, set]) => set.has(rec.id)).map(([folderId]) => folderId);
+      return records;
     },
   };
 }

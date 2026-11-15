@@ -498,10 +498,11 @@ async function scanAccount(account) {
   const whole = load(`fullScan:${account.address}`, false);
   const known = new Map((await loadScan(account.address)).map(r => [r.id, r]));
   const onScreen = () => current === account; // the user may switch account while a scan runs
-  let records;
+  let records, saved = known.size;
   try {
     records = await account.provider.scanAliases(known, (done, total) => {
-      if (done % 500 === 0) saveScan(account.address, [...known.values()]); // a long scan keeps its progress if the tab closes
+      // A long scan keeps its progress if the tab closes. Counted on new records, cached ones cost nothing.
+      if (known.size - saved >= 500) { saved = known.size; saveScan(account.address, [...known.values()]); }
       if (onScreen()) $('scanStatus').textContent = `Scanning ${done} / ${total}`;
     }, whole ? Infinity : undefined);
   } catch (error) {
