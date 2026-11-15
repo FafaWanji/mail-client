@@ -83,6 +83,32 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     }
   }
 
+  // Undo must reverse only what really changed: `had` maps each label to the ids that carried it before.
+  async function change(ids, add = [], remove = [], had) {
+    const ops = [];
+    for (const label of add) { const x = ids.filter(id => !had.get(label)?.has(id)); if (x.length) ops.push({ ids: x, remove: [label] }); }
+    for (const label of remove) { const x = ids.filter(id => had.get(label)?.has(id)); if (x.length) ops.push({ ids: x, add: [label] }); }
+    await modify(ids, add, remove);
+    return { count: ids.length, ops };
+  }
+
+  // Labels of a few chosen mails, one request each.
+  async function labelsOf(ids, labels) {
+    const had = new Map(labels.map(l => [l, new Set()]));
+    await pool(ids, async id => {
+      const m = await api(`/messages/${id}`, { params: { format: 'minimal' } });
+      for (const l of m?.labelIds || []) had.get(l)?.add(id);
+    });
+    return had;
+  }
+
+  // Labels of every mail a search finds: one list per label, not one request per mail.
+  async function labelsOfSearch(q, labels) {
+    return new Map(await Promise.all(labels.map(async l => [l, new Set(await listIds({ q, labelIds: l }, Infinity))])));
+  }
+
+  const changeChosen = async (ids, add, remove) => (ids.length ? change(ids, add, remove, await labelsOf(ids, [...add, ...remove])) : { count: 0, ops: [] });
+
   const metadata = id => api(`/messages/${id}`, { params: { format: 'metadata', metadataHeaders: HEADERS } });
 
   async function listIds(params, limit) {
@@ -129,9 +155,13 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     support: GMAIL_SUPPORT,
     validateRule: toGmailFilter, // throws with a readable message when Gmail cannot run the rule
 
-    trash: ids => modify(ids, ['TRASH'], []),
-    markRead: (ids, read) => (read ? modify(ids, [], ['UNREAD']) : modify(ids, ['UNREAD'], [])),
-    moveToFolder: (ids, folderId) => modify(ids, [folderId], ['INBOX']),
+    // Each returns a receipt for undo().
+    trash: ids => changeChosen(ids, ['TRASH'], []),
+    markRead: (ids, read) => (read ? modify(ids, [], ['UNREAD']) : modify(ids, ['UNREAD'], [])), // no undo: the opposite button is undo
+    moveToFolder: (ids, folderId) => changeChosen(ids, [folderId], ['INBOX']),
+    async undo(receipt) {
+      for (const op of receipt.ops) await modify(op.ids, op.add, op.remove);
+    },
 
     listFolders,
 
@@ -156,13 +186,16 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
 
     deleteRule: id => api(`/settings/filters/${id}`, { method: 'DELETE' }),
 
-    /** Runs the rule's label changes on mail already in the mailbox. Never forwards. Returns the count. */
+    /** Runs the rule's label changes on mail already in the mailbox. Never forwards. Returns a receipt with the count. */
     async applyRuleToExisting(rule) {
       const { action } = toGmailFilter(rule);
-      if (!action.addLabelIds && !action.removeLabelIds) return 0;
-      const ids = await listIds({ q: ruleToSearch(rule) }, Infinity);
-      await modify(ids, action.addLabelIds, action.removeLabelIds);
-      return ids.length;
+      const add = action.addLabelIds || [], remove = action.removeLabelIds || [];
+      if (!add.length && !remove.length) return { count: 0, ops: [] };
+      const q = ruleToSearch(rule);
+      const ids = await listIds({ q }, Infinity);
+      if (!ids.length) return { count: 0, ops: [] };
+      // A search never finds mail in Trash or Spam, so those labels need no lookup.
+      return change(ids, add, remove, await labelsOfSearch(q, [...add, ...remove].filter(l => l !== 'TRASH' && l !== 'SPAM')));
     },
 
     async countMatching(rule) {

@@ -22,6 +22,13 @@ export function createDemo() {
   }));
   const folders = [], rules = [];
   const each = (ids, fn) => { for (const m of mails) if (ids.includes(m.id)) fn(m); };
+  // The demo's receipt is a copy of each mail's state before the change.
+  const changed = (hit, fn) => {
+    const before = hit.map(m => ({ m, labels: new Set(m.labels), unread: m.unread }));
+    hit.forEach(fn);
+    return { count: hit.length, before };
+  };
+  const pick = ids => mails.filter(m => ids.includes(m.id));
   const names = () => new Map(folders.map(f => [f.id, f.name]));
   // Only the two conditions the demo screens use.
   const matching = rule => mails.filter(m => !m.labels.has('TRASH') &&
@@ -46,9 +53,10 @@ export function createDemo() {
       return { messages, nextPageToken: null };
     },
     getMessage: async id => mails.find(m => m.id === id),
-    trash: async ids => each(ids, m => m.labels.add('TRASH')),
+    trash: async ids => changed(pick(ids), m => m.labels.add('TRASH')),
+    undo: async receipt => { for (const { m, labels, unread } of receipt.before) Object.assign(m, { labels, unread }); },
     markRead: async (ids, read) => each(ids, m => { m.unread = !read; }),
-    moveToFolder: async (ids, folderId) => each(ids, m => { m.labels.add(folderId); m.labels.delete('INBOX'); }),
+    moveToFolder: async (ids, folderId) => changed(pick(ids), m => { m.labels.add(folderId); m.labels.delete('INBOX'); }),
     listFolders: async () => folders.slice(),
     async createFolder(name) {
       let folder = folders.find(f => f.name.toLowerCase() === name.trim().toLowerCase());
@@ -63,9 +71,12 @@ export function createDemo() {
     },
     deleteRule: async id => { rules.splice(rules.findIndex(r => r.id === id), 1); },
     async applyRuleToExisting(rule) {
-      const hit = matching(rule);
-      for (const m of hit) if (rule.actions.delete) m.labels.add('TRASH');
-      return hit.length;
+      const { actions } = rule;
+      return changed(matching(rule), m => {
+        if (actions.markAsRead) m.unread = false;
+        if (actions.delete) m.labels.add('TRASH');
+        else if (actions.moveToFolder) { m.labels.add(actions.moveToFolder); m.labels.delete('INBOX'); }
+      });
     },
     countMatching: async rule => ({ count: matching(rule).length, more: false }),
     scanAliases: async () => mails.filter(m => !m.labels.has('TRASH'))

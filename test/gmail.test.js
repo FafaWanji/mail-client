@@ -97,10 +97,11 @@ test('other errors carry status and message', async () => {
 });
 
 test('trash chunks by 1000', async () => {
-  const { gmail, calls } = setup(() => reply(204));
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204) : reply(200, { labelIds: ['INBOX'] })));
   await gmail.trash(Array.from({ length: 2500 }, (_, i) => `m${i}`));
-  assert.deepEqual(calls.map(c => c.body.ids.length), [1000, 1000, 500]);
-  for (const c of calls) {
+  const posts = calls.filter(c => c.init.method === 'POST');
+  assert.deepEqual(posts.map(c => c.body.ids.length), [1000, 1000, 500]);
+  for (const c of posts) {
     assert.equal(path(c.url), '/messages/batchModify');
     assert.deepEqual(c.body.addLabelIds, ['TRASH']);
   }
@@ -113,9 +114,48 @@ test('trash with no ids makes no request', async () => {
 });
 
 test('moveToFolder body', async () => {
-  const { gmail, calls } = setup(() => reply(204));
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204) : reply(200, { labelIds: ['INBOX'] })));
   await gmail.moveToFolder(['a'], 'L1');
-  assert.deepEqual(calls[0].body, { ids: ['a'], addLabelIds: ['L1'], removeLabelIds: ['INBOX'] });
+  assert.deepEqual(calls.find(c => c.init.method === 'POST').body, { ids: ['a'], addLabelIds: ['L1'], removeLabelIds: ['INBOX'] });
+});
+
+test('undo of a move puts back only the inbox mail and leaves labels that were there', async () => {
+  const labels = { a: ['INBOX'], b: ['L2'], c: ['INBOX', 'L1'] };
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204) : reply(200, { labelIds: labels[path(u).split('/').pop()] })));
+  const receipt = await gmail.moveToFolder(['a', 'b', 'c'], 'L1');
+  assert.equal(receipt.count, 3);
+  const before = calls.length;
+  await gmail.undo(receipt);
+  assert.deepEqual(calls.slice(before).map(c => c.body), [
+    { ids: ['a', 'b'], removeLabelIds: ['L1'] },
+    { ids: ['a', 'c'], addLabelIds: ['INBOX'] }]);
+});
+
+test('undo of trash leaves mail that was in Trash already', async () => {
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204) : reply(200, { labelIds: path(u).endsWith('/old') ? ['TRASH'] : ['INBOX'] })));
+  const receipt = await gmail.trash(['new', 'old']);
+  const before = calls.length;
+  await gmail.undo(receipt);
+  assert.deepEqual(calls.slice(before).map(c => c.body), [{ ids: ['new'], removeLabelIds: ['TRASH'] }]);
+});
+
+test('undo of a rule run marks unread only the mail that was unread', async () => {
+  const { gmail, calls } = setup((u, c) => {
+    if (c.init.method === 'POST') return reply(204);
+    const label = u.searchParams.get('labelIds');
+    if (label === 'UNREAD') return reply(200, { messages: [{ id: '2' }] });
+    if (label === 'INBOX') return reply(200, { messages: [{ id: '1' }, { id: '2' }] });
+    if (label) return reply(200, {});
+    return reply(200, { messages: [{ id: '1' }, { id: '2' }, { id: '3' }] });
+  });
+  const receipt = await gmail.applyRuleToExisting({ conditions: { subjectContains: ['x'] }, exceptions: {}, actions: { moveToFolder: 'L1', markAsRead: true } });
+  assert.equal(receipt.count, 3);
+  const before = calls.length;
+  await gmail.undo(receipt);
+  assert.deepEqual(calls.slice(before).map(c => c.body), [
+    { ids: ['1', '2', '3'], removeLabelIds: ['L1'] },
+    { ids: ['1', '2'], addLabelIds: ['INBOX'] },
+    { ids: ['2'], addLabelIds: ['UNREAD'] }]);
 });
 
 test('markRead', async () => {
@@ -205,7 +245,7 @@ test('applyRuleToExisting pages and does not forward', async () => {
       ? reply(200, { messages: [{ id: '3' }] })
       : reply(200, { messages: [{ id: '1' }, { id: '2' }], nextPageToken: 'P' });
   });
-  assert.equal(await gmail.applyRuleToExisting(rule), 3);
+  assert.equal((await gmail.applyRuleToExisting(rule)).count, 3);
   assert.equal(calls[0].url.searchParams.get('q'), 'to:("me+a@gmail.com") -from:("a.com")');
   const posts = calls.filter(c => c.init.method === 'POST');
   assert.equal(posts.length, 1);
@@ -214,7 +254,7 @@ test('applyRuleToExisting pages and does not forward', async () => {
 
 test('applyRuleToExisting with nothing matching', async () => {
   const { gmail, calls } = setup(() => reply(200, {}));
-  assert.equal(await gmail.applyRuleToExisting(rule), 0);
+  assert.equal((await gmail.applyRuleToExisting(rule)).count, 0);
   assert.equal(calls.length, 1);
 });
 

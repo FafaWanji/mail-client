@@ -74,7 +74,15 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
   }
 
   const each = (ids, fn) => pool(ids, fn, PARALLEL);
-  const move = (id, destinationId) => api(`/messages/${id}/move`, { method: 'POST', body: { destinationId } });
+  // A move gives the mail a new id. Receipts keep that id and the folder it came from.
+  const move = async (id, destinationId) => (await api(`/messages/${id}/move`, { method: 'POST', body: { destinationId } }))?.id || id;
+  async function moveChosen(ids, destinationId) {
+    const moves = await each(ids, async id => {
+      const { parentFolderId } = await api(`/messages/${id}`, { params: { $select: 'parentFolderId' } });
+      return { id: await move(id, destinationId), folderId: parentFolderId };
+    });
+    return { count: ids.length, moves };
+  }
   const setRead = (id, isRead) => api(`/messages/${id}`, { method: 'PATCH', body: { isRead } });
 
   async function pages(first, params, limit) {
@@ -131,9 +139,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       return { ...toMsg(m), html: html ? m.body.content : null, text: !html && m.body ? m.body.content : null };
     },
 
-    trash: async ids => { await each(ids, id => move(id, 'deleteditems')); },
+    // trash, moveToFolder and applyRuleToExisting return a receipt for undo().
+    trash: ids => moveChosen(ids, 'deleteditems'),
     markRead: async (ids, read) => { await each(ids, id => setRead(id, read)); },
-    moveToFolder: async (ids, folderId) => { await each(ids, id => move(id, folderId)); },
+    moveToFolder: moveChosen,
+    async undo(receipt) {
+      await each(receipt.moves, async ({ id, folderId, unread }) => {
+        if (unread) await setRead(id, false);
+        if (folderId) await move(id, folderId);
+      });
+    },
 
     listFolders,
 
@@ -166,15 +181,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
 
     async applyRuleToExisting(rule) {
       const search = replaySearch(rule);
-      if (!search) return 0;
-      const found = await pages('/messages', { $search: `"${search}"`, $select: 'id', $top: 500 }, SCAN_LIMIT);
+      if (!search) return { count: 0, moves: [] };
+      const found = await pages('/messages', { $search: `"${search}"`, $select: 'id,parentFolderId,isRead', $top: 500 }, SCAN_LIMIT);
       const { markAsRead, moveToFolder, delete: toTrash } = rule.actions;
-      await each(found, async ({ id }) => {
-        if (markAsRead) await setRead(id, true);
-        if (toTrash) await move(id, 'deleteditems');
-        else if (moveToFolder) await move(id, moveToFolder);
+      const to = toTrash ? 'deleteditems' : moveToFolder;
+      const moves = await each(found, async ({ id, parentFolderId, isRead }) => {
+        const unread = Boolean(markAsRead && isRead === false);
+        if (unread) await setRead(id, true);
+        return to ? { id: await move(id, to), folderId: parentFolderId, unread } : { id, unread };
       });
-      return found.length;
+      return { count: found.length, moves };
     },
 
     /** Alias and sender domain of the newest mails. Outlook returns recipients in the list, so this takes a few requests. */

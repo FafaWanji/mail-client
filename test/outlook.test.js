@@ -126,10 +126,39 @@ test('getMessage splits html and text', async () => {
 });
 
 test('trash moves each mail to deleted items', async () => {
-  const { provider, calls } = setup(() => reply(201, {}));
+  const { provider, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(201, {}) : reply(200, { parentFolderId: 'INBOXID' })));
   await provider.trash(['a', 'b']);
-  assert.deepEqual(calls.map(c => path(c.url)).sort(), ['/messages/a/move', '/messages/b/move']);
-  assert.deepEqual(calls[0].body, { destinationId: 'deleteditems' });
+  const posts = calls.filter(c => c.init.method === 'POST');
+  assert.deepEqual(posts.map(c => path(c.url)).sort(), ['/messages/a/move', '/messages/b/move']);
+  assert.deepEqual(posts[0].body, { destinationId: 'deleteditems' });
+});
+
+test('undo moves each mail back by its new id to the folder it came from', async () => {
+  const { provider, calls } = setup((u, c) => {
+    const id = path(u).split('/')[2];
+    if (c.init.method === 'POST') return reply(201, { id: `${id}2` });
+    return reply(200, { parentFolderId: id === 'a' ? 'INBOXID' : 'F9' });
+  });
+  const receipt = await provider.trash(['a', 'b']);
+  const before = calls.length;
+  await provider.undo(receipt);
+  assert.deepEqual(calls.slice(before).map(c => [path(c.url), c.body.destinationId]).sort(),
+    [['/messages/a2/move', 'INBOXID'], ['/messages/b2/move', 'F9']]);
+});
+
+test('undo of a rule run marks unread only what was unread', async () => {
+  const { provider, calls } = setup((u, c) => {
+    if (c.init.method === 'POST') return reply(201, { id: `${path(u).split('/')[2]}2` });
+    if (c.init.method === 'PATCH') return reply(200, {});
+    return reply(200, { value: [{ id: '1', parentFolderId: 'P', isRead: true }, { id: '2', parentFolderId: 'P', isRead: false }] });
+  });
+  const receipt = await provider.applyRuleToExisting({ ...simple, actions: { markAsRead: true, moveToFolder: 'F1' } });
+  assert.equal(receipt.count, 2);
+  const before = calls.length;
+  await provider.undo(receipt);
+  const after = calls.slice(before).map(c => [c.init.method, path(c.url), c.body]);
+  assert.deepEqual(after.filter(c => c[0] === 'PATCH'), [['PATCH', '/messages/22', { isRead: false }]]);
+  assert.deepEqual(after.filter(c => c[0] === 'POST').map(c => c[1]).sort(), ['/messages/12/move', '/messages/22/move']);
 });
 
 test('markRead patches isRead', async () => {
@@ -176,7 +205,7 @@ test('scanAliases reads pages, not single mails', async () => {
 const simple = { conditions: { recipientContains: ['me+a@outlook.com'] }, exceptions: {}, actions: { delete: true } };
 test('applyRuleToExisting for a simple rule', async () => {
   const { provider, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(201, {}) : reply(200, { value: [{ id: '1' }, { id: '2' }] })));
-  assert.equal(await provider.applyRuleToExisting(simple), 2);
+  assert.equal((await provider.applyRuleToExisting(simple)).count, 2);
   assert.equal(calls[0].url.searchParams.get('$search'), '"(to:me+a@outlook.com)"');
   assert.equal(calls.filter(c => path(c.url).endsWith('/move')).length, 2);
 });
@@ -184,7 +213,7 @@ test('rules Outlook cannot replay on old mail report zero', async () => {
   const { provider, calls } = setup(() => reply(200, { value: [] }));
   const hard = { conditions: { importance: 'high' }, exceptions: {}, actions: { delete: true } };
   assert.deepEqual(await provider.countMatching(hard), { count: 0, more: false });
-  assert.equal(await provider.applyRuleToExisting(hard), 0);
+  assert.equal((await provider.applyRuleToExisting(hard)).count, 0);
   assert.equal(calls.length, 0);
 });
 

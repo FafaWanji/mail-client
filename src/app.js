@@ -135,6 +135,7 @@ async function switchTo(account) {
   $('app').hidden = false;
   $('builder').hidden = true;
   pickedSenders.clear();
+  offerUndo(null);
   renderAccounts();
   try { localStorage.removeItem(`aliasScan:${me}`); } catch { /* old cache format, best effort */ }
   scanRecords = load(`scan2:${me}`, []); // show the last scan at once, the new one updates it
@@ -257,6 +258,34 @@ async function openMessage(id) {
 }
 $('showImages').onclick = () => renderFrame(true);
 
+// ---------- undo ----------
+// Only the last action can be undone. Receipts come from the provider; rules and scan records are what the app added or dropped.
+let lastUndo = null;
+function offerUndo(text, receipts = [], { rules = [], records = [] } = {}) {
+  receipts = receipts.filter(r => r?.count);
+  lastUndo = text && (receipts.length || rules.length) ? { account: current, receipts, rules, records } : null;
+  $('undo').hidden = !lastUndo;
+  $('undo').textContent = `Undo: ${text}`;
+}
+$('undo').onclick = async () => {
+  const undo = lastUndo;
+  offerUndo(null);
+  if (!undo || undo.account !== current) return;
+  const done = await run(async () => {
+    for (const receipt of undo.receipts) await provider.undo(receipt);
+    for (const id of undo.rules) await provider.deleteRule(id);
+    return true;
+  });
+  if (undo.records.length) {
+    scanRecords = [...scanRecords, ...undo.records];
+    save(`scan2:${me}`, scanRecords);
+    setAliasRecords();
+  }
+  if (done) status('Undone.');
+  await openBox(box);
+};
+const mailsText = n => `${n} mail${n === 1 ? '' : 's'}`;
+
 // ---------- cleanup actions ----------
 function targets() {
   if (selected.size) return [...selected];
@@ -264,23 +293,25 @@ function targets() {
   status('Select a mail first.', true);
   return [];
 }
-async function act(fn) {
+async function act(fn, undoText) {
   const ids = targets();
   if (!ids.length) return;
-  const done = await run(async () => { await fn(ids); return true; });
-  if (done) await openBox(box);
+  const receipt = await run(async () => (await fn(ids)) || true);
+  if (!receipt) return;
+  if (undoText) offerUndo(`${undoText} ${mailsText(ids.length)}`, [receipt]);
+  await openBox(box);
 }
 $('actTrash').onclick = () => {
   const count = selected.size || (openMail ? 1 : 0);
   if (count > BULK_CONFIRM && !confirm(`Move ${count} mails to Trash?`)) return;
-  act(ids => provider.trash(ids));
+  act(ids => provider.trash(ids), 'trash');
 };
 $('actRead').onclick = () => act(ids => provider.markRead(ids, true));
 $('actUnread').onclick = () => act(ids => provider.markRead(ids, false));
 $('actMove').onclick = async () => {
   if (!targets().length) return;
   const folderId = await pickFolder();
-  if (folderId) act(ids => provider.moveToFolder(ids, folderId));
+  if (folderId) act(ids => provider.moveToFolder(ids, folderId), 'move');
 };
 
 // ---------- folders ----------
@@ -333,7 +364,10 @@ async function saveRule(rule) {
   const match = await run(() => provider.countMatching(rule));
   if (match?.count && confirm(`Rule saved. Also apply it to the ${match.count}${match.more ? '+' : ''} mails already here?`)) {
     const changed = await run(() => provider.applyRuleToExisting(rule));
-    if (changed !== undefined) status(`Applied to ${changed} mails.`);
+    if (changed) {
+      status(`Applied to ${mailsText(changed.count)}.`);
+      offerUndo(`rule on ${mailsText(changed.count)}`, [changed]);
+    }
   }
   return true;
 }
@@ -587,18 +621,26 @@ async function trashSenders(senders, block) {
     `${block ? ', and send all future mail from them to Trash' : ''}?`;
   if (!confirm(question)) return;
   let changed = 0;
+  const receipts = [], made = [], records = [];
   for (const rule of rules) {
-    if (block && !(await run(() => provider.createRule(rule)))) break;
+    if (block) {
+      const saved = await run(() => provider.createRule(rule));
+      if (!saved) break;
+      made.push(saved.id);
+    }
     const done = await run(() => provider.applyRuleToExisting(rule));
-    if (done === undefined) break;
-    changed += done;
+    if (!done) break;
+    receipts.push(done);
+    changed += done.count;
     // Drop what is finished at once, so a failure half way leaves the list matching the mailbox.
     const gone = new Set(rule.conditions.senderContains);
+    records.push(...scanRecords.filter(r => gone.has(senderKey(r))));
     scanRecords = scanRecords.filter(r => !gone.has(senderKey(r)));
     for (const key of gone) pickedSenders.delete(key);
   }
   save(`scan2:${me}`, scanRecords);
   setAliasRecords();
+  offerUndo(`${block ? 'trash + block' : 'trash'} ${mailsText(changed)}`, receipts, { rules: made, records });
   if (changed || block) status(`${changed} mails moved to Trash.${block ? ' Future mail from these senders is blocked.' : ''}`);
 }
 
@@ -637,11 +679,14 @@ async function block(alias, domain) {
   const made = await run(() => provider.createRule(rule));
   if (!made) return;
   const changed = await run(() => provider.applyRuleToExisting(rule));
-  if (changed === undefined) return;
-  status(`Blocked. ${changed} mails moved to Trash.`);
-  scanRecords = scanRecords.filter(r => !(r.alias === alias && r.domain === domain));
+  if (!changed) return offerUndo('block', [], { rules: [made.id] });
+  status(`Blocked. ${changed.count} mails moved to Trash.`);
+  const hit = r => r.alias === alias && r.domain === domain;
+  const records = scanRecords.filter(hit);
+  scanRecords = scanRecords.filter(r => !hit(r));
   save(`scan2:${me}`, scanRecords);
   setAliasRecords();
+  offerUndo(`block ${mailsText(changed.count)}`, [changed], { rules: [made.id], records });
 }
 
 // ---------- boot ----------
