@@ -251,12 +251,12 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     },
 
     /**
-     * Alias and sender domain of the newest mails. `known` (id -> record) is the cache: only new ids are fetched, and new records are added to it.
+     * Alias and sender domain of the newest `limit` mails (Infinity: the whole mailbox). `known` (id -> record) is the cache: only new ids are fetched, and new records are added to it.
      * Records without an alias are returned too, so the cache stops them being fetched again.
      */
-    async scanAliases(known, onProgress = () => {}) {
+    async scanAliases(known, onProgress = () => {}, limit = SCAN_LIMIT) {
       const me = await ownAddress();
-      const ids = await listIds({}, SCAN_LIMIT);
+      const ids = await listIds({}, limit);
       let done = 0;
       return pool(ids, async id => {
         let rec = known.get(id);

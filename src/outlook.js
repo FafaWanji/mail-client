@@ -241,9 +241,9 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
     },
 
     /** Alias and sender domain of the newest mails. Outlook returns recipients in the list, so this takes a few requests. */
-    async scanAliases(known, onProgress = () => {}) {
+    async scanAliases(known, onProgress = () => {}, limit = SCAN_LIMIT) {
       const me = await ownAddress();
-      const found = await pages('/messages', { $select: 'id,from,toRecipients,parentFolderId', $top: 500, $orderby: 'receivedDateTime desc', $expand: SIZE_PROP }, SCAN_LIMIT);
+      const found = await pages('/messages', { $select: 'id,from,toRecipients,parentFolderId', $top: 500, $orderby: 'receivedDateTime desc', $expand: SIZE_PROP }, limit);
       const records = found.map(m => {
         let rec = known.get(m.id);
         if (rec?.size === undefined || rec.folders?.[0] !== m.parentFolderId) {

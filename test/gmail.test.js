@@ -315,3 +315,15 @@ test('emptyFolder lists Trash and deletes it in batches of 1000', async () => {
   const posts = calls.filter(c => c.init.method === 'POST');
   assert.deepEqual(posts.map(c => [path(c.url), c.body.ids.length]), [['/messages/batchDelete', 1000], ['/messages/batchDelete', 200]]);
 });
+
+test('scanAliases with no limit reads the whole mailbox', async () => {
+  let n = 0;
+  const { gmail } = setup(u => {
+    const p = path(u);
+    if (p === '/profile') return reply(200, { emailAddress: 'me@gmail.com' });
+    if (p === '/messages') return reply(200, { messages: Array.from({ length: 500 }, () => ({ id: `k${n++}` })), nextPageToken: n < 3000 ? 'more' : undefined });
+    return reply(200, meta('x', {}));
+  });
+  const known = new Map(Array.from({ length: 3000 }, (_, i) => [`k${i}`, { id: `k${i}`, size: 1 }]));
+  assert.equal((await gmail.scanAliases(known, undefined, Infinity)).length, 3000);
+});

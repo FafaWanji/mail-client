@@ -40,6 +40,31 @@ function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked: cache is optional */ }
 }
 
+// The scan cache outgrows localStorage (about 5 million characters) on a whole-mailbox scan, so it lives in IndexedDB.
+const scanDb = new Promise((resolve, reject) => {
+  const open = indexedDB.open('mailclient', 1);
+  open.onupgradeneeded = () => open.result.createObjectStore('kv');
+  open.onsuccess = () => resolve(open.result);
+  open.onerror = () => reject(open.error);
+});
+async function idb(mode, fn) {
+  const request = fn((await scanDb).transaction('kv', mode).objectStore('kv'));
+  return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+}
+const saveScan = (address, records) => idb('readwrite', store => store.put(records, `scan:${address}`)).catch(() => { /* cache is optional */ });
+async function loadScan(address) {
+  try {
+    const kept = await idb('readonly', store => store.get(`scan:${address}`));
+    if (kept) return kept;
+    const old = load(`scan2:${address}`, []); // the cache before IndexedDB, moved over once
+    if (old.length) await saveScan(address, old);
+    localStorage.removeItem(`scan2:${address}`);
+    return old;
+  } catch {
+    return [];
+  }
+}
+
 // ---------- status and errors ----------
 let statusTimer;
 function status(text, isError = false) {
@@ -138,7 +163,8 @@ async function switchTo(account) {
   offerUndo(null);
   renderAccounts();
   try { localStorage.removeItem(`aliasScan:${me}`); } catch { /* old cache format, best effort */ }
-  scanRecords = load(`scan2:${me}`, []); // show the last scan at once, the new one updates it
+  $('fullScan').checked = load(`fullScan:${me}`, false);
+  scanRecords = await loadScan(me); // show the last scan at once, the new one updates it
   setAliasRecords();
   await refreshFolders();
   await openBox(BOXES.inbox);
@@ -280,7 +306,7 @@ $('undo').onclick = async () => {
   });
   if (undo.records.length) {
     scanRecords = [...scanRecords, ...undo.records];
-    save(`scan2:${me}`, scanRecords);
+    saveScan(me, scanRecords);
     setAliasRecords();
   }
   if (done) status('Undone.');
@@ -397,26 +423,34 @@ async function saveRule(rule, replacesId) {
 
 // ---------- aliases ----------
 async function scan() {
-  const account = current, key = `scan2:${account.address}`;
-  const known = new Map(load(key, []).map(r => [r.id, r]));
+  const account = current;
+  if (account.scanning) return status('A scan is already running.');
+  account.scanning = true;
+  try { await scanAccount(account); } finally { account.scanning = false; }
+}
+
+async function scanAccount(account) {
+  const whole = load(`fullScan:${account.address}`, false);
+  const known = new Map((await loadScan(account.address)).map(r => [r.id, r]));
   const onScreen = () => current === account; // the user may switch account while a scan runs
   let records;
   try {
     records = await account.provider.scanAliases(known, (done, total) => {
+      if (done % 500 === 0) saveScan(account.address, [...known.values()]); // a long scan keeps its progress if the tab closes
       if (onScreen()) $('scanStatus').textContent = `Scanning ${done} / ${total}`;
-    });
+    }, whole ? Infinity : undefined);
   } catch (error) {
-    save(key, [...known.values()]); // keep what was read, the next scan continues from there
+    await saveScan(account.address, [...known.values()]); // keep what was read, the next scan continues from there
     if (!onScreen()) return;
     $('scanStatus').textContent = `Scan stopped at ${known.size} mails. Press the scan button to continue.`;
     if (error instanceof AuthExpired) expire(account);
     else status(`Alias scan failed: ${error.message}`, true);
     return;
   }
-  save(key, records);
+  await saveScan(account.address, records);
   if (!onScreen()) return;
   scanRecords = records;
-  $('scanStatus').textContent = `Newest ${records.length} mails scanned, ${sizeText(records.reduce((sum, r) => sum + (r.size || 0), 0))}.`;
+  $('scanStatus').textContent = `${whole ? 'Whole mailbox' : 'Newest mails'}: ${records.length} scanned, ${sizeText(records.reduce((sum, r) => sum + (r.size || 0), 0))}.`;
   setAliasRecords();
   refreshFolders();
 }
@@ -450,6 +484,10 @@ async function aliasToFolder(alias) {
   await saveRule({ conditions: provider.aliasCondition(aliasAddress(me, alias)), exceptions: {}, actions: { moveToFolder: folderId } });
 }
 $('rescan').onclick = scan;
+$('fullScan').onchange = () => {
+  save(`fullScan:${me}`, $('fullScan').checked);
+  if ($('fullScan').checked) scan();
+};
 
 // ---------- rules view ----------
 // Gmail cannot switch a filter off. A paused Gmail filter is deleted and its definition kept here until resumed.
@@ -693,7 +731,7 @@ async function trashSenders(senders, block, folderId) {
     records.push(...scanRecords.filter(r => gone.has(senderKey(r))));
     scanRecords = scanRecords.filter(r => !gone.has(senderKey(r)));
   }
-  save(`scan2:${me}`, scanRecords);
+  saveScan(me, scanRecords);
   setAliasRecords();
   offerUndo(`${folderId ? 'move + rule' : block ? 'trash + block' : 'trash'} ${mailsText(changed)}`, receipts, { rules: made, records });
   if (changed || block) status(`${changed} mails moved ${where}.${block ? ` Future mail from these senders goes ${where}.` : ''}`);
@@ -768,7 +806,7 @@ async function block(alias, domain) {
   const hit = r => r.alias === alias && r.domain === domain;
   const records = scanRecords.filter(hit);
   scanRecords = scanRecords.filter(r => !hit(r));
-  save(`scan2:${me}`, scanRecords);
+  saveScan(me, scanRecords);
   setAliasRecords();
   offerUndo(`block ${mailsText(changed.count)}`, [changed], { rules: [made.id], records });
 }
