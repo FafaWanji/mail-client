@@ -59,7 +59,7 @@ test('scanAliases spaces its requests to stay under the quota', async () => {
     if (p === '/messages') return reply(200, { messages: [{ id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }] });
     return reply(200, meta('x', { To: 'me@gmail.com', From: 'a@b.c' }));
   });
-  await gmail.scanAliases(new Map([['4', { id: '4', alias: null, domain: null }]]));
+  await gmail.scanAliases(new Map([['4', { id: '4', alias: null, domain: null, size: 0 }]]));
   assert.equal(sleeps.length, 2);              // 3 fetched, the first goes at once, the cached one never waits
   assert.ok(sleeps.every(ms => ms > 0 && ms <= 300));
   assert.ok(sleeps[1] > 100);                  // slots are 100 ms apart
@@ -214,13 +214,13 @@ const scanHandler = u => {
 
 test('scanAliases skips known ids', async () => {
   const { gmail, calls } = setup(scanHandler);
-  const known = new Map([['1', { id: '1', alias: 'spotify', domain: 'spotify.com' }]]);
+  const known = new Map([['1', { id: '1', alias: 'spotify', domain: 'spotify.com', size: 9 }]]);
   const recs = await gmail.scanAliases(known);
   assert.equal(calls.filter(c => /\/messages\/\w+$/.test(path(c.url))).length, 2);
   assert.deepEqual(recs, [
-    { id: '1', alias: 'spotify', domain: 'spotify.com' },
-    { id: '2', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com' },
-    { id: '3', alias: null, domain: 'y.com', from: 'b@y.com' }]);
+    { id: '1', alias: 'spotify', domain: 'spotify.com', size: 9 },
+    { id: '2', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com', size: 0, folders: [] },
+    { id: '3', alias: null, domain: 'y.com', from: 'b@y.com', size: 0, folders: [] }]);
 });
 
 test('scanAliases stops at 2000 ids', async () => {

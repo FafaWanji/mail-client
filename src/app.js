@@ -5,7 +5,7 @@ import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
 import { aliasAddress, extractAlias, senderAddress } from './alias.js';
-import { senderReport, senderKey, chunks } from './senders.js';
+import { senderReport, senderKey, chunks, folderReport, sizeText } from './senders.js';
 import { RULE_CATALOG } from './rules.js';
 import { leakReport } from './leaks.js';
 
@@ -317,8 +317,10 @@ $('actMove').onclick = async () => {
 // ---------- folders ----------
 async function refreshFolders() {
   folders = (await run(() => provider.listFolders())) || folders;
+  const totals = folderReport(scanRecords);
   $('folders').replaceChildren(...folders.map(f => el('li', {},
-    el('button', { className: 'link', textContent: f.name, onclick: () => openBox({ title: f.name, folderId: f.id }) }))));
+    el('button', { className: 'link', textContent: f.name, onclick: () => openBox({ title: f.name, folderId: f.id }) }),
+    totals.has(f.id) ? el('span', { className: 'count', title: 'Scanned mails in this folder', textContent: `${totals.get(f.id).count} · ${sizeText(totals.get(f.id).size)}` }) : null)));
   if (!folders.length) $('folders').append(el('li', { className: 'muted', textContent: 'None yet.' }));
 }
 
@@ -393,8 +395,9 @@ async function scan() {
   save(key, records);
   if (!onScreen()) return;
   scanRecords = records;
-  $('scanStatus').textContent = `Newest ${records.length} mails scanned.`;
+  $('scanStatus').textContent = `Newest ${records.length} mails scanned, ${sizeText(records.reduce((sum, r) => sum + (r.size || 0), 0))}.`;
   setAliasRecords();
+  refreshFolders();
 }
 
 function setAliasRecords() {
@@ -594,7 +597,8 @@ function renderSenders() {
     return el('li', { onclick: () => toggle(!check.checked) },
       check,
       el('span', { className: 'name', textContent: entry.key }),
-      el('span', { className: 'count', textContent: entry.count }));
+      el('span', { className: 'count', textContent: entry.count }),
+      el('span', { className: 'count', textContent: sizeText(entry.size) }));
   }));
   if (!report.length) $('senders').append(el('li', { className: 'muted', textContent: 'No scanned mail yet.' }));
   $('sendersAll').onchange = () => {

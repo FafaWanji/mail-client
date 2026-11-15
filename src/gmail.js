@@ -248,10 +248,12 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       let done = 0;
       return pool(ids, async id => {
         let rec = known.get(id);
-        if (!rec) {
+        if (rec?.size === undefined) { // records from before sizes were kept are read once more
           await scanSlot();
-          const m = toMsg(await metadata(id));
-          rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from), from: senderAddress(m.from) };
+          const raw = await metadata(id);
+          const m = toMsg(raw);
+          rec = { id, alias: extractAlias(m.deliveredTo, me) ?? extractAlias(m.to, me), domain: senderDomain(m.from), from: senderAddress(m.from),
+            size: raw.sizeEstimate || 0, folders: raw.labelIds || [] };
           known.set(id, rec); // progress survives a failed scan: the caller can save `known` and resume
         }
         onProgress(++done, ids.length);

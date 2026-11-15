@@ -96,6 +96,6 @@ export function createDemo() {
     },
     countMatching: async rule => ({ count: matching(rule).length, more: false }),
     scanAliases: async () => mails.filter(m => !m.labels.has('TRASH'))
-      .map(m => ({ id: m.id, alias: extractAlias(m.to, ME), domain: senderDomain(m.from), from: senderAddress(m.from) })),
+      .map(m => ({ id: m.id, alias: extractAlias(m.to, ME), domain: senderDomain(m.from), from: senderAddress(m.from), size: m.size, folders: [...m.labels] })),
   };
 }

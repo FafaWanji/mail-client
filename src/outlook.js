@@ -9,6 +9,8 @@ const SCAN_LIMIT = 2000;
 const PARALLEL = 4; // Outlook allows 4 requests at once per mailbox
 const RETRIES = 9;
 const SELECT = 'id,from,toRecipients,subject,receivedDateTime,bodyPreview,isRead';
+// Graph has no size field on a message; PR_MESSAGE_SIZE (0x0E08) holds it.
+const SIZE_PROP = "singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')";
 
 const address = recipient => recipient?.emailAddress?.address || '';
 
@@ -229,11 +231,12 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
     /** Alias and sender domain of the newest mails. Outlook returns recipients in the list, so this takes a few requests. */
     async scanAliases(known, onProgress = () => {}) {
       const me = await ownAddress();
-      const found = await pages('/messages', { $select: 'id,from,toRecipients', $top: 500, $orderby: 'receivedDateTime desc' }, SCAN_LIMIT);
+      const found = await pages('/messages', { $select: 'id,from,toRecipients,parentFolderId', $top: 500, $orderby: 'receivedDateTime desc', $expand: SIZE_PROP }, SCAN_LIMIT);
       const records = found.map(m => {
         let rec = known.get(m.id);
-        if (!rec) {
-          rec = { id: m.id, alias: extractAlias((m.toRecipients || []).map(address).join(', '), me), domain: senderDomain(address(m.from)), from: address(m.from).toLowerCase() };
+        if (rec?.size === undefined || rec.folders?.[0] !== m.parentFolderId) {
+          rec = { id: m.id, alias: extractAlias((m.toRecipients || []).map(address).join(', '), me), domain: senderDomain(address(m.from)), from: address(m.from).toLowerCase(),
+            size: Number(m.singleValueExtendedProperties?.[0]?.value) || 0, folders: [m.parentFolderId] };
           known.set(m.id, rec);
         }
         return rec;

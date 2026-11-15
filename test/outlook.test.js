@@ -192,13 +192,13 @@ test('scanAliases reads pages, not single mails', async () => {
   const { provider, calls } = setup(u => {
     if (path(u) === '') return reply(200, { mail: 'me@outlook.com' });
     return u.searchParams.get('page') === '2'
-      ? reply(200, { value: [mail('2', 'b@y.com', ['me@outlook.com'])] })
-      : reply(200, { value: [mail('1', 'no-reply@mail.uber.com', ['me+uber@outlook.com'])], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/messages?page=2' });
+      ? reply(200, { value: [mail('2', 'b@y.com', ['me@outlook.com'], { parentFolderId: 'F2' })] })
+      : reply(200, { value: [mail('1', 'no-reply@mail.uber.com', ['me+uber@outlook.com'], { parentFolderId: 'F1', singleValueExtendedProperties: [{ id: 'Integer 0xe08', value: '2048' }] })], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/messages?page=2' });
   });
   const known = new Map();
   assert.deepEqual(await provider.scanAliases(known), [
-    { id: '1', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com' },
-    { id: '2', alias: null, domain: 'y.com', from: 'b@y.com' }]);
+    { id: '1', alias: 'uber', domain: 'uber.com', from: 'no-reply@mail.uber.com', size: 2048, folders: ['F1'] },
+    { id: '2', alias: null, domain: 'y.com', from: 'b@y.com', size: 0, folders: ['F2'] }]);
   assert.equal(calls.length, 3);
 });
 
