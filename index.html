@@ -21,7 +21,7 @@
   <div id="app" hidden>
     <aside>
       <select id="accountSelect" aria-label="Account"></select>
-      <button id="compose">Write mail</button>
+      <button id="compose" class="per-account">Write mail</button>
       <div class="toolbar">
         <button id="addGmail" hidden>+ Gmail</button>
         <button id="addOutlook" hidden>+ Outlook</button>
@@ -32,17 +32,19 @@
         <button data-box="trash">Trash</button>
         <button data-box="spam">Spam</button>
       </nav>
+      <div class="per-account">
       <h2>Folders <button id="newFolder" title="New folder" aria-label="New folder">+</button></h2>
       <ul id="folders"></ul>
       <h2>Aliases <button id="rescan" title="Scan again" aria-label="Scan aliases again">&#8635;</button></h2>
       <p id="scanStatus" class="muted"></p>
       <label class="muted" title="Gmail reads about 6,000 mails in 10 minutes. Progress is kept if it stops."><input type="checkbox" id="fullScan"> Scan whole mailbox</label>
       <ul id="aliases"></ul>
+      </div>
       <nav>
         <button data-view="senders">Senders</button>
         <button data-view="cleanup">Cleanup</button>
-        <button data-view="rules">Rules</button>
-        <button data-view="leaks">Leaks <span id="leakCount"></span></button>
+        <button data-view="rules" class="per-account">Rules</button>
+        <button data-view="leaks" class="per-account">Leaks <span id="leakCount"></span></button>
         <button id="signOut">Sign out</button>
       </nav>
     </aside>
@@ -59,8 +61,8 @@
             <button id="actTrash">Trash</button>
             <button id="actRead">Mark read</button>
             <button id="actUnread">Mark unread</button>
-            <button id="actMove">Move to folder</button>
-            <button id="actEmpty" hidden>Empty for good</button>
+            <button id="actMove" class="per-account">Move to folder</button>
+            <button id="actEmpty" class="per-account" hidden>Empty for good</button>
           </div>
           <h2 id="boxTitle"></h2>
           <ul id="messages"></ul>
@@ -71,7 +73,7 @@
           <div class="toolbar" id="readTools" hidden>
             <button id="reply">Reply</button>
             <button id="showImages">Show images</button>
-            <button id="ruleFromMail">Rule from this mail</button>
+            <button id="ruleFromMail" class="per-account">Rule from this mail</button>
             <button id="unsubscribe" hidden>Unsubscribe</button>
           </div>
           <iframe id="frame" title="Mail content" hidden></iframe>
@@ -107,7 +109,7 @@
           <button id="sendersShow">Show mail</button>
           <button id="sendersTrash">Trash all</button>
           <button id="sendersBlock">Trash + block</button>
-          <button id="sendersMove">Move to folder + rule</button>
+          <button id="sendersMove" class="per-account">Move to folder + rule</button>
           <button id="sendersUnsub">Unsubscribe</button>
           <span id="sendersPicked" class="muted"></span>
         </div>

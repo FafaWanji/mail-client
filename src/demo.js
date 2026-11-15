@@ -2,7 +2,6 @@
 import { extractAlias, senderDomain, senderAddress } from './alias.js';
 import { toGmailFilter, fromGmailFilter, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 
-const ME = 'demo@gmail.com';
 const SAMPLE = [
   ['Spotify <no-reply@spotify.com>', 'demo+spotify@gmail.com', 'Your receipt', 'Thanks for your payment.'],
   ['Spotify <no-reply@spotify.com>', 'demo+spotify@gmail.com', 'New releases for you', 'Fresh music this week.'],
@@ -20,10 +19,13 @@ const SIZE = [30e3, 25e3, 6e6, 12e3, 8e3, 7.5e6, 3e3];
 const cleanupHit = (m, f) => (!f.before || m.date < f.before) && (!f.larger || m.size > f.larger) && (!f.unread || m.unread);
 const cleanupGuard = f => { if (!f.before && !f.larger && !f.unread) throw new Error('Pick at least one cleanup condition.'); return f; };
 
-export function createDemo() {
+/** `address` lets the demo run as a second account too. */
+export function createDemo(ME = 'demo@gmail.com') {
   let nextId = 1;
-  const mails = SAMPLE.map(([from, to, subject, body], i) => ({
-    id: `m${i}`, from, to, deliveredTo: to, subject, date: Date.now() - AGE_DAYS[i] * 864e5 - i * 3600e3, size: SIZE[i], snippet: body.replace(/<[^>]+>/g, ' '),
+  const [local, host] = ME.split('@');
+  const mails = SAMPLE.map(([from, sample, subject, body], i) => ({
+    to: sample.replace('demo', local).replace('gmail.com', host), deliveredTo: sample.replace('demo', local).replace('gmail.com', host),
+    id: `m${i}`, from, subject, date: Date.now() - AGE_DAYS[i] * 864e5 - i * 3600e3, size: SIZE[i], snippet: body.replace(/<[^>]+>/g, ' '),
     unread: i % 2 === 0, labels: new Set(['INBOX']),
     html: body.startsWith('<') ? body : null, text: body.startsWith('<') ? null : body,
     listUnsubscribe: UNSUBSCRIBE[i]?.[0] || '', listUnsubscribePost: UNSUBSCRIBE[i]?.[1] || '',

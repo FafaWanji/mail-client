@@ -3,6 +3,7 @@ import { googleSignIn, microsoftSignIn, GOOGLE_ID, MICROSOFT_ID, GOOGLE_FULL } f
 import { createGmail, AuthExpired } from './gmail.js';
 import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
+import { createCombined, combinedId, AccountFailed } from './combined.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
 import { aliasAddress, extractAlias, senderAddress } from './alias.js';
 import { senderReport, senderKey, chunks, folderReport, sizeText } from './senders.js';
@@ -53,7 +54,9 @@ async function idb(mode, fn) {
   const request = fn((await scanDb).transaction('kv', mode).objectStore('kv'));
   return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
 }
-const saveScan = (address, records) => idb('readwrite', store => store.put(records, `scan:${address}`)).catch(() => { /* cache is optional */ });
+// The combined view has no cache of its own: each account's scan keeps its own.
+const saveScan = (address, records) => (address === 'All accounts' ? Promise.resolve()
+  : idb('readwrite', store => store.put(records, `scan:${address}`)).catch(() => { /* cache is optional */ }));
 async function loadScan(address) {
   try {
     const kept = await idb('readonly', store => store.get(`scan:${address}`));
@@ -82,9 +85,11 @@ async function run(fn) {
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof AuthExpired) expire(current);
+    // In the combined view the account that failed is named; what the others did comes back for undo.
+    const failed = error instanceof AccountFailed ? error : null;
+    if ((failed?.cause || error) instanceof AuthExpired) expire(failed ? accounts.find(a => accountKey(a) === failed.account.key) : current);
     else status(error.message, true);
-    return undefined;
+    return failed?.partial;
   } finally {
     document.body.classList.remove('busy');
   }
@@ -98,6 +103,13 @@ const KINDS = {
 // Only kind and address are remembered, never a token. Each session signs in again.
 const remembered = () => load('accounts', []).filter(a => KINDS[a.kind]);
 const sameAccount = (a, b) => a.kind === b.kind && a.address === b.address;
+const accountKey = a => `${a.kind}:${a.address}`;
+
+// Built anew each time it is opened, so it always holds the accounts connected right now.
+function allAccounts() {
+  const parts = accounts.map(a => ({ key: accountKey(a), address: a.address, provider: a.provider }));
+  return { kind: 'all', combined: true, address: 'All accounts', provider: createCombined(parts) };
+}
 
 function showGate(text) {
   $('app').hidden = true;
@@ -143,11 +155,13 @@ function expire(account) {
 function renderAccounts() {
   const others = remembered().filter(known => !accounts.some(a => sameAccount(a, known)));
   $('accountSelect').replaceChildren(
+    ...(accounts.length > 1 ? [el('option', { value: 'all:', textContent: 'All accounts', selected: Boolean(current?.combined) })] : []),
     ...accounts.map((a, i) => el('option', { value: `live:${i}`, textContent: a.address, selected: a === current })),
     ...others.map((a, i) => el('option', { value: `known:${i}`, textContent: `${a.address} (sign in)` })));
   $('accountSelect').onchange = () => {
     const [type, index] = $('accountSelect').value.split(':');
-    if (type === 'live') switchTo(accounts[index]);
+    if (type === 'all') switchTo(allAccounts());
+    else if (type === 'live') switchTo(accounts[index]);
     else addAccount(others[index].kind, others[index].address);
   };
   $('addGmail').hidden = !GOOGLE_ID;
@@ -164,6 +178,18 @@ async function switchTo(account) {
   pickedSenders.clear();
   offerUndo(null);
   renderAccounts();
+  // Folders, rules, aliases, leaks and writing new mail belong to one account: hidden in the combined view.
+  document.body.classList.toggle('combined', Boolean(account.combined));
+  if (account.combined) {
+    // Each account's own sent mail is dropped here, because the senders list knows only one own address.
+    const caches = await Promise.all(accounts.map(async a => (await loadScan(a.address))
+      .filter(r => r.from !== a.address).map(r => ({ ...r, id: combinedId(accountKey(a), r.id) }))));
+    scanRecords = caches.flat();
+    folders = [];
+    setAliasRecords();
+    await openBox(BOXES.inbox);
+    return;
+  }
   try { localStorage.removeItem(`aliasScan:${me}`); } catch { /* old cache format, best effort */ }
   $('fullScan').checked = load(`fullScan:${me}`, false);
   scanRecords = await loadScan(me); // show the last scan at once, the new one updates it
@@ -229,7 +255,8 @@ function renderList() {
       el('span', { className: 'from', textContent: senderName(m.from) }),
       el('span', { className: 'date', textContent: new Date(m.date).toLocaleDateString() }),
       el('span', { className: 'subject', textContent: m.subject || '(no subject)' }),
-      el('span', { className: 'snippet', textContent: decodeEntities(m.snippet) }));
+      el('span', { className: 'snippet', textContent: decodeEntities(m.snippet) }),
+      m.account ? el('span', { className: 'account', textContent: `to ${m.account}` }) : null);
     row.onclick = () => openMessage(m.id);
     row.onkeydown = event => { if (event.key === 'Enter') openMessage(m.id); };
     return row;
@@ -275,6 +302,7 @@ async function openMessage(id) {
     el('strong', { textContent: mail.subject || '(no subject)' }),
     el('div', { textContent: `From: ${mail.from}` }),
     el('div', { textContent: `To: ${mail.deliveredTo || mail.to}` }),
+    mail.account ? el('div', { className: 'muted', textContent: `Account: ${mail.account}` }) : null,
     el('div', { className: 'muted', textContent: new Date(mail.date).toLocaleString() }));
   $('readTools').hidden = false;
   const unsub = parseUnsubscribe(mail.listUnsubscribe, mail.listUnsubscribePost);
@@ -291,7 +319,7 @@ async function openMessage(id) {
 $('showImages').onclick = () => renderFrame(true);
 $('unsubscribe').onclick = async () => {
   const info = parseUnsubscribe(openMail.listUnsubscribe, openMail.listUnsubscribePost);
-  const done = await unsubscribe(info, senderName(openMail.from));
+  const done = await unsubscribe(info, senderName(openMail.from), openMail);
   if (done.link) window.open(done.link, '_blank', 'noopener,noreferrer'); // the sender's own page finishes it
   else if (done.text) status(done.text, !done.ok);
 };
@@ -301,7 +329,7 @@ let replyingTo = null; // the open mail when the dialog is a reply
 function openCompose({ to = '', subject = '', replyTo = null } = {}) {
   replyingTo = replyTo;
   $('composeTitle').textContent = replyTo ? 'Reply' : 'New mail';
-  $('composeFrom').textContent = me;
+  $('composeFrom').textContent = replyTo?.account || me;
   $('composeTo').value = to;
   $('composeSubject').value = subject;
   $('composeText').value = '';
@@ -334,7 +362,7 @@ $('composeForm').onsubmit = async event => {
  * Uses the sender's List-Unsubscribe header. One-click (RFC 8058) is a bare POST; a mailto: is sent as a short mail.
  * Returns { ok, text }, or { link } when only the sender's web page can do it.
  */
-async function unsubscribe(info, name) {
+async function unsubscribe(info, name, source) {
   if (info.oneClick) {
     // no-cors and no cookies: the request carries nothing of this app or the browser, and its answer cannot be read.
     const sent = current.kind === 'demo' || await fetch(info.oneClick, { method: 'POST', mode: 'no-cors', credentials: 'omit', referrerPolicy: 'no-referrer',
@@ -343,8 +371,9 @@ async function unsubscribe(info, name) {
   }
   if (info.mailto && provider.sendMail) {
     const { to, subject, body } = mailtoParts(info.mailto);
-    if (!confirm(`${name} unsubscribes by mail. Send "${subject}" from ${me} to ${to}?`)) return { ok: false, text: 'Nothing sent.' };
-    const sent = await run(() => provider.sendMail({ to, subject, text: body }).then(() => true));
+    if (!confirm(`${name} unsubscribes by mail. Send "${subject}" from ${source.account || me} to ${to}?`)) return { ok: false, text: 'Nothing sent.' };
+    // viaId: in the combined view the mail goes out from the account that got `source`.
+    const sent = await run(() => provider.sendMail({ to, subject, text: body, viaId: source.id }).then(() => true));
     return { ok: Boolean(sent), text: sent ? `Unsubscribe mail sent to ${to}.` : '' };
   }
   if (info.link) return { link: info.link };
@@ -756,13 +785,13 @@ $('sendersUnsub').onclick = async () => {
   for (const sender of senders) {
     const page = await run(() => provider.listMessages({ folderId: 'ALL', filter: { from: sender } }));
     // Not every mail of a sender carries the header, so the newest three are tried.
-    let info = parseUnsubscribe('');
+    let info = parseUnsubscribe(''), source = null;
     for (const { id } of (page?.messages || []).slice(0, 3)) {
-      const mail = await run(() => provider.getMessage(id));
-      info = parseUnsubscribe(mail?.listUnsubscribe, mail?.listUnsubscribePost);
+      source = await run(() => provider.getMessage(id));
+      info = parseUnsubscribe(source?.listUnsubscribe, source?.listUnsubscribePost);
       if (info.oneClick || info.link || info.mailto) break;
     }
-    const done = await unsubscribe(info, sender);
+    const done = await unsubscribe(info, sender, source);
     if (done.link) links.push([sender, done.link]);
     else (done.ok ? sent : none).push(sender);
   }
@@ -808,10 +837,12 @@ async function trashSenders(senders, block, folderId) {
       const saved = await run(() => provider.createRule(rule));
       if (!saved) break;
       made.push(saved.id);
+      if (saved.failed) break; // the combined view: one account failed after others made theirs
     }
     const done = await run(() => provider.applyRuleToExisting(rule));
     if (!done) break;
     receipts.push(done);
+    if (done.failed) break;
     changed += done.count;
     const gone = new Set(rule.conditions.senderContains);
     for (const key of gone) pickedSenders.delete(key);
@@ -902,10 +933,9 @@ async function block(alias, domain) {
 
 // ---------- boot ----------
 if (new URLSearchParams(location.search).has('demo')) {
-  const demo = { kind: 'demo', provider: createDemo() };
-  demo.address = await demo.provider.ownAddress();
-  accounts.push(demo);
-  switchTo(demo);
+  // Two accounts, so the combined view can be tried too.
+  for (const address of ['demo@gmail.com', 'work@demo.example']) accounts.push({ kind: 'demo', address, provider: createDemo(address) });
+  switchTo(accounts[0]);
 } else {
   showGate(GOOGLE_ID || MICROSOFT_ID
     ? 'Sign in to an account. Add more accounts later from the sidebar.'
