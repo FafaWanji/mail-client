@@ -236,3 +236,14 @@ test('several senders in one filter', async () => {
   await o.provider.listMessages({ filter: { from: ['a.com', 'b@outlook.com'] } });
   assert.equal(o.calls[0].url.searchParams.get('$search'), '"(from:a.com OR from:b@outlook.com)"');
 });
+
+test('updateRule patches without touching order or on/off state', async () => {
+  const { provider, calls } = setup(() => reply(200, { value: [] }));
+  await provider.updateRule('R1', { conditions: { subjectContains: ['x'] }, exceptions: {}, actions: { delete: true } });
+  const patch = calls.find(c => c.init.method === 'PATCH');
+  assert.equal(path(patch.url), '/mailFolders/inbox/messageRules/R1');
+  assert.equal('sequence' in patch.body, false);
+  assert.equal('isEnabled' in patch.body, false);
+  await provider.setRuleEnabled('R1', false);
+  assert.deepEqual(calls.at(-1).body, { isEnabled: false });
+});

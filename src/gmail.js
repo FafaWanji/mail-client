@@ -1,5 +1,5 @@
 import { extractAlias, senderDomain, senderAddress } from './alias.js';
-import { toGmailFilter, ruleToSearch, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
+import { toGmailFilter, fromGmailFilter, ruleToSearch, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 import { pickBody } from './mailbody.js';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -176,7 +176,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     async listRules() {
       const [filters, labels] = await Promise.all([api('/settings/filters'), api('/labels')]);
       const names = new Map((labels?.labels || []).map(l => [l.id, l.name]));
-      return (filters?.filter || []).map(raw => ({ id: raw.id, summary: describeGmailFilter(raw, names), raw }));
+      return (filters?.filter || []).map(raw => ({ id: raw.id, summary: describeGmailFilter(raw, names), raw, rule: fromGmailFilter(raw), enabled: true }));
     },
 
     async createRule(rule) {
@@ -185,6 +185,17 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     },
 
     deleteRule: id => api(`/settings/filters/${id}`, { method: 'DELETE' }),
+
+    // Gmail filters cannot be changed or switched off. Edit makes the new one before deleting the old; pause is delete plus a copy kept by the app.
+    async updateRule(id, rule) {
+      const made = await api('/settings/filters', { method: 'POST', body: toGmailFilter(rule) });
+      await api(`/settings/filters/${id}`, { method: 'DELETE' });
+      return { id: made.id };
+    },
+    async recreateRule(raw) {
+      const made = await api('/settings/filters', { method: 'POST', body: { criteria: raw.criteria, action: raw.action } });
+      return { id: made.id };
+    },
 
     /** Runs the rule's label changes on mail already in the mailbox. Never forwards. Returns a receipt with the count. */
     async applyRuleToExisting(rule) {

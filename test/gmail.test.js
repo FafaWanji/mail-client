@@ -278,3 +278,15 @@ test('listRules with no filters', async () => {
   const { gmail } = setup(() => reply(200, {}));
   assert.deepEqual(await gmail.listRules(), []);
 });
+
+test('updateRule makes the new filter before deleting the old one', async () => {
+  const { gmail, calls } = setup((u, c) => reply(200, c.init.method === 'POST' ? { id: 'NEW' } : {}));
+  assert.deepEqual(await gmail.updateRule('OLD', { conditions: { subjectContains: ['x'] }, exceptions: {}, actions: { delete: true } }), { id: 'NEW' });
+  assert.deepEqual(calls.map(c => [c.init.method, path(c.url)]), [['POST', '/settings/filters'], ['DELETE', '/settings/filters/OLD']]);
+});
+
+test('recreateRule posts the kept definition without its old id', async () => {
+  const { gmail, calls } = setup(() => reply(200, { id: 'N' }));
+  await gmail.recreateRule({ id: 'OLD', criteria: { from: 'a' }, action: { addLabelIds: ['TRASH'] } });
+  assert.deepEqual(calls[0].body, { criteria: { from: 'a' }, action: { addLabelIds: ['TRASH'] } });
+});

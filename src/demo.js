@@ -1,6 +1,6 @@
 // In-memory stand-in for a mail account, opened with ?demo=1. No network, nothing is saved.
 import { extractAlias, senderDomain, senderAddress } from './alias.js';
-import { toGmailFilter, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
+import { toGmailFilter, fromGmailFilter, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 
 const ME = 'demo@gmail.com';
 const SAMPLE = [
@@ -63,13 +63,23 @@ export function createDemo() {
       if (!folder) folders.push(folder = { id: `L${nextId++}`, name: name.trim() });
       return folder;
     },
-    listRules: async () => rules.map(r => ({ id: r.id, summary: describeGmailFilter(r.raw, names()), raw: r.raw })),
+    listRules: async () => rules.map(r => ({ id: r.id, summary: describeGmailFilter(r.raw, names()), raw: r.raw, rule: fromGmailFilter(r.raw), enabled: true })),
     async createRule(rule) {
       const id = `F${nextId++}`;
       rules.push({ id, raw: toGmailFilter(rule) });
       return { id };
     },
     deleteRule: async id => { rules.splice(rules.findIndex(r => r.id === id), 1); },
+    async updateRule(id, rule) {
+      const made = await this.createRule(rule);
+      await this.deleteRule(id);
+      return made;
+    },
+    async recreateRule(raw) {
+      const id = `F${nextId++}`;
+      rules.push({ id, raw: { criteria: raw.criteria, action: raw.action } });
+      return { id };
+    },
     async applyRuleToExisting(rule) {
       const { actions } = rule;
       return changed(matching(rule), m => {

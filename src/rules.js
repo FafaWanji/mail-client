@@ -229,3 +229,87 @@ export function toOutlookRule(rule, folderNames) {
   body.displayName = describeOutlookRule(body, folderNames).slice(0, 250);
   return body;
 }
+
+// ---------- reading rules back, for editing ----------
+
+const sameSet = (a = [], b = []) => a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n');
+const sameFilter = (a, b) => (a.criteria.query || '') === (b.criteria.query || '') &&
+  (a.criteria.negatedQuery || '') === (b.criteria.negatedQuery || '') &&
+  sameSet(a.action.addLabelIds, b.action.addLabelIds) && sameSet(a.action.removeLabelIds, b.action.removeLabelIds) &&
+  (a.action.forward || '') === (b.action.forward || '');
+
+// One clause as predicatesToQuery writes it. Sticky, so it only matches at the current position.
+const CLAUSE = /(from:|to:|subject:|)\(("[^"]*"(?: OR "[^"]*")*)\)|(-?)has:attachment|larger:(\d+)(?: smaller:(\d+))?|smaller:(\d+)/y;
+const KEY_OF = { 'from:': 'senderContains', 'to:': 'recipientContains', 'subject:': 'subjectContains', '': 'bodyContains' };
+
+// Reads clauses joined by `glue` (' ' for conditions, ' OR ' for exceptions). Null if any part is not ours.
+function parseClauses(text, glue) {
+  const out = {};
+  let at = 0;
+  while (at < text.length) {
+    if (at > 0) { if (!text.startsWith(glue, at)) return null; at += glue.length; }
+    const wrapped = text[at] === '(' && text[at + 1] !== '"';
+    CLAUSE.lastIndex = at + (wrapped ? 1 : 0);
+    const m = CLAUSE.exec(text);
+    if (!m) return null;
+    at = CLAUSE.lastIndex;
+    if (wrapped) { if (text[at] !== ')') return null; at++; }
+    let key, value;
+    if (m[2] !== undefined) {
+      value = m[2].slice(1, -1).split('" OR "');
+      key = KEY_OF[m[1]];
+      if (key !== 'subjectContains' && key !== 'bodyContains' && value.every(v => v.includes('@'))) key = key === 'senderContains' ? 'fromAddresses' : 'sentToAddresses';
+    } else if (m[0].endsWith('has:attachment')) { key = 'hasAttachments'; value = m[3] !== '-'; }
+    else {
+      const [min, max] = [m[4], m[5] || m[6]].map(n => Number(n || 0));
+      if (min % 1024 || max % 1024) return null; // the builder works in whole KB
+      key = 'withinSizeRange'; value = { minimumSize: min / 1024, maximumSize: max / 1024 };
+    }
+    if (key in out) return null;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** The rule model behind a Gmail filter, or null when the filter was not made the way this app makes them. */
+export function fromGmailFilter(raw) {
+  const c = raw.criteria || {}, a = raw.action || {};
+  if (Object.keys(c).some(k => k !== 'query' && k !== 'negatedQuery') || !c.query) return null;
+  const conditions = parseClauses(c.query, ' ');
+  const exceptions = c.negatedQuery ? parseClauses(c.negatedQuery, ' OR ') : {};
+  if (!conditions || !exceptions) return null;
+  const add = a.addLabelIds || [], remove = a.removeLabelIds || [];
+  const actions = {};
+  for (const id of add) {
+    if (id === 'TRASH') actions.delete = true;
+    else if (id === 'STARRED') actions.gmailStar = true;
+    else if (id === 'IMPORTANT') actions.markImportance = 'high';
+    else if (remove.includes('INBOX') && !actions.moveToFolder) actions.moveToFolder = id;
+    else if (!actions.copyToFolder) actions.copyToFolder = id;
+    else return null;
+  }
+  if (remove.includes('UNREAD')) actions.markAsRead = true;
+  if (remove.includes('SPAM')) actions.gmailNeverSpam = true;
+  if (remove.includes('IMPORTANT')) actions.markImportance = 'low';
+  if (a.forward) actions.forwardTo = [a.forward];
+  const rule = { conditions, exceptions, actions };
+  try {
+    return sameFilter(toGmailFilter(rule), { criteria: c, action: a }) ? rule : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The rule model behind an Outlook rule, or null when it uses something this app does not know. */
+export function fromOutlookRule(raw) {
+  const part = (graph, kind) => {
+    const out = {};
+    for (const [key, value] of Object.entries(graph || {})) {
+      if (!OUTLOOK_SUPPORT[kind].has(key)) return null;
+      out[key] = RECIPIENT_KEYS.has(key) ? value.map(r => r?.emailAddress?.address).filter(Boolean) : value;
+    }
+    return out;
+  };
+  const rule = { conditions: part(raw.conditions, 'predicates'), exceptions: part(raw.exceptions, 'predicates'), actions: part(raw.actions, 'actions') };
+  return rule.conditions && rule.exceptions && rule.actions ? rule : null;
+}

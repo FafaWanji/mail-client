@@ -1,5 +1,5 @@
 import { extractAlias, senderDomain } from './alias.js';
-import { toOutlookRule, describeOutlookRule, OUTLOOK_SUPPORT } from './rules.js';
+import { toOutlookRule, fromOutlookRule, describeOutlookRule, OUTLOOK_SUPPORT } from './rules.js';
 import { AuthExpired, pool } from './gmail.js';
 
 const GRAPH = 'https://graph.microsoft.com/';
@@ -162,7 +162,7 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
 
     async listRules() {
       const [rules, names] = await Promise.all([api('/mailFolders/inbox/messageRules'), folderNames()]);
-      return (rules?.value || []).map(raw => ({ id: raw.id, summary: describeOutlookRule(raw, names), raw }));
+      return (rules?.value || []).map(raw => ({ id: raw.id, summary: describeOutlookRule(raw, names), raw, rule: fromOutlookRule(raw), enabled: raw.isEnabled !== false }));
     },
 
     async createRule(rule) {
@@ -171,6 +171,13 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
     },
 
     deleteRule: id => api(`/mailFolders/inbox/messageRules/${id}`, { method: 'DELETE' }),
+
+    async updateRule(id, rule) {
+      const { sequence, isEnabled, ...body } = toOutlookRule(rule, await folderNames()); // keep its place in the order and its on/off state
+      await api(`/mailFolders/inbox/messageRules/${id}`, { method: 'PATCH', body });
+      return { id };
+    },
+    setRuleEnabled: (id, isEnabled) => api(`/mailFolders/inbox/messageRules/${id}`, { method: 'PATCH', body: { isEnabled } }),
 
     async countMatching(rule) {
       const search = replaySearch(rule);

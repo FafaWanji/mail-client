@@ -357,8 +357,8 @@ function pickFolder() {
 
 // ---------- rules shared ----------
 /** Saves a rule, then offers to run it on mail already in the mailbox. */
-async function saveRule(rule) {
-  const made = await run(() => provider.createRule(rule));
+async function saveRule(rule, replacesId) {
+  const made = await run(() => (replacesId ? provider.updateRule(replacesId, rule) : provider.createRule(rule)));
   if (!made) return false;
   status('Rule saved.');
   const match = await run(() => provider.countMatching(rule));
@@ -428,20 +428,37 @@ async function aliasToFolder(alias) {
 $('rescan').onclick = scan;
 
 // ---------- rules view ----------
+// Gmail cannot switch a filter off. A paused Gmail filter is deleted and its definition kept here until resumed.
+// shortcut: paused filters live in this browser only, like trust marks
+const pausedKey = () => `paused:${me}`;
+const presetsOf = rule => Object.fromEntries(Object.keys(KIND).map(section =>
+  [section, Object.entries(rule[section] || {}).map(([key, value]) => ({ key, value }))]));
+
 async function refreshRules() {
   const rules = await run(() => provider.listRules());
   if (!rules) return;
-  $('rules').replaceChildren(...rules.map(rule => el('li', {},
-    el('span', { textContent: rule.summary }),
-    el('button', {
-      textContent: 'Delete',
-      onclick: async () => {
-        if (!confirm(`Delete this rule?\n\n${rule.summary}`)) return;
-        await run(() => provider.deleteRule(rule.id));
-        refreshRules();
-      },
-    }))));
-  if (!rules.length) $('rules').append(el('li', { className: 'muted', textContent: 'No rules yet.' }));
+  const paused = provider.setRuleEnabled ? [] : load(pausedKey(), []);
+  const button = (textContent, fn) => el('button', { textContent, onclick: async () => { if (await fn() !== false) refreshRules(); } });
+  const row = (summary, on, ...buttons) => el('li', { className: on ? '' : 'muted' }, el('span', { textContent: `${on ? '' : '(paused) '}${summary}` }), ...buttons);
+  const dropPaused = i => save(pausedKey(), load(pausedKey(), []).filter((_, j) => j !== i));
+  $('rules').replaceChildren(
+    ...rules.map(rule => row(rule.summary, rule.enabled,
+      rule.rule
+        ? button('Edit', () => { openBuilder(presetsOf(rule.rule), rule.id); return false; })
+        : el('button', { textContent: 'Edit', disabled: true, title: 'Made outside this app in a form it cannot read. Delete and rebuild it here.' }),
+      button(rule.enabled ? 'Pause' : 'Resume', () => pauseRule(rule, !rule.enabled)),
+      button('Delete', () => confirm(`Delete this rule?\n\n${rule.summary}`) && run(() => provider.deleteRule(rule.id))))),
+    ...paused.map((kept, i) => row(kept.summary, false,
+      button('Resume', async () => { if (await run(() => provider.recreateRule(kept.raw))) dropPaused(i); }),
+      button('Delete', () => (confirm(`Delete this paused rule?\n\n${kept.summary}`) ? dropPaused(i) : false)))));
+  if (!rules.length && !paused.length) $('rules').append(el('li', { className: 'muted', textContent: 'No rules yet.' }));
+}
+
+async function pauseRule(rule, enable) {
+  if (provider.setRuleEnabled) return run(() => provider.setRuleEnabled(rule.id, enable));
+  const kept = load(pausedKey(), []);
+  save(pausedKey(), [...kept, { summary: rule.summary, raw: rule.raw }]); // copy first, so a failed delete cannot lose the rule
+  if (!(await run(() => provider.deleteRule(rule.id).then(() => true)))) save(pausedKey(), kept);
 }
 
 const KIND = { conditions: 'predicates', exceptions: 'predicates', actions: 'actions' };
@@ -466,8 +483,8 @@ function valueInput(entry, section, value) {
     box.append(select);
     box.read = () => select.value;
   } else if (entry.type === 'sizeRange') {
-    const min = el('input', { type: 'number', min: 0, placeholder: 'min KB', ariaLabel: 'Minimum size in KB' });
-    const max = el('input', { type: 'number', min: 0, placeholder: 'max KB', ariaLabel: 'Maximum size in KB' });
+    const min = el('input', { type: 'number', min: 0, placeholder: 'min KB', ariaLabel: 'Minimum size in KB', value: value?.minimumSize || '' });
+    const max = el('input', { type: 'number', min: 0, placeholder: 'max KB', ariaLabel: 'Maximum size in KB', value: value?.maximumSize || '' });
     box.append(min, max);
     box.read = () => ({ minimumSize: Number(min.value) || 0, maximumSize: Number(max.value) || 0 });
   } else if (entry.type === 'folder') {
@@ -511,7 +528,9 @@ function readSection(section) {
   return out;
 }
 
-function openBuilder(presets = {}) {
+let editingId = null; // the rule the builder replaces, or null for a new rule
+function openBuilder(presets = {}, replacesId = null) {
+  editingId = replacesId;
   showView('rules');
   $('builder').hidden = false;
   $('builderError').textContent = '';
@@ -541,7 +560,7 @@ $('builder').onsubmit = async event => {
   const sendsTo = [rule.actions.forwardTo, rule.actions.forwardAsAttachmentTo, rule.actions.redirectTo].flat().filter(Boolean);
   if (sendsTo.length && !confirm(`Every matching mail will be sent on to ${sendsTo.join(', ')}. Save?`)) return;
   if (rule.actions.permanentDelete && !confirm('Matching mail will be deleted for good, with no Trash. Save?')) return;
-  if (await saveRule(rule)) {
+  if (await saveRule(rule, editingId)) {
     $('builder').hidden = true;
     refreshRules();
   }
