@@ -60,8 +60,8 @@ test('scanAliases spaces its requests to stay under the quota', async () => {
     return reply(200, meta('x', { To: 'me@gmail.com', From: 'a@b.c' }));
   });
   await gmail.scanAliases(new Map([['4', { id: '4', alias: null, domain: null, size: 0 }]]));
-  assert.equal(sleeps.length, 2);              // 3 fetched, the first goes at once, the cached one never waits
-  assert.ok(sleeps.every(ms => ms > 0 && ms <= 300));
+  assert.equal(sleeps.length, 3);              // the id list goes at once, the 3 fetches wait, the cached one never waits
+  assert.ok(sleeps.every(ms => ms > 0 && ms <= 400));
   assert.ok(sleeps[1] > 100);                  // slots are 100 ms apart
 });
 
@@ -356,4 +356,20 @@ test('cleanup with no condition is refused, not the whole mailbox', async () => 
   const { gmail, calls } = setup(() => reply(200, {}));
   await assert.rejects(gmail.trashMessages({}), /at least one/);
   assert.equal(calls.length, 0);
+});
+
+test('scanAliases lists folders one at a time, paced like the scan', async () => {
+  let open = 0, most = 0;
+  const { gmail, sleeps } = setup(async u => {
+    const p = path(u);
+    if (p === '/profile') return reply(200, { emailAddress: 'me@gmail.com' });
+    if (p === '/labels') return reply(200, { labels: Array.from({ length: 5 }, (_, i) => ({ id: `L${i}`, name: `F${i}`, type: 'user' })) });
+    open++; most = Math.max(most, open);
+    await new Promise(r => setTimeout(r, 1));
+    open--;
+    return reply(200, { messages: [{ id: 'a' }] });
+  });
+  await gmail.scanAliases(new Map([['a', { id: 'a', size: 1 }]]));
+  assert.equal(most, 1);
+  assert.equal(sleeps.length, 5); // the first list goes at once, the five folder lists each wait for a slot
 });

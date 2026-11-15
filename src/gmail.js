@@ -132,10 +132,12 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
 
   const metadata = id => api(`/messages/${id}`, { params: { format: 'metadata', metadataHeaders: HEADERS } });
 
-  async function listIds(params, limit) {
+  // paced: each page waits for a scan slot, so a long listing shares the scan's 10 requests per second.
+  async function listIds(params, limit, paced = false) {
     const ids = [];
     let pageToken;
     do {
+      if (paced) await scanSlot();
       const page = await api('/messages', { params: { ...params, maxResults: 500, pageToken } });
       for (const m of page?.messages || []) ids.push(m.id);
       pageToken = page?.nextPageToken;
@@ -273,7 +275,7 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
      */
     async scanAliases(known, onProgress = () => {}, limit = SCAN_LIMIT) {
       const me = await ownAddress();
-      const ids = await listIds({}, limit);
+      const ids = await listIds({}, limit, true);
       let done = 0;
       const records = await pool(ids, async id => {
         let rec = known.get(id);
@@ -290,7 +292,9 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       });
       // Cached records keep the labels of their first read. One id list per folder brings them up to date after moves.
       // A folder's newest `limit` ids hold every one of its mails among the newest `limit` overall.
-      const inFolder = await Promise.all((await listFolders()).map(async f => [f.id, new Set(await listIds({ labelIds: f.id }, limit))]));
+      // One folder at a time and paced: all at once emptied the per-minute quota on mailboxes with many labels.
+      const inFolder = [];
+      for (const f of await listFolders()) inFolder.push([f.id, new Set(await listIds({ labelIds: f.id }, limit, true))]);
       for (const rec of records) rec.folders = inFolder.filter(([, set]) => set.has(rec.id)).map(([folderId]) => folderId);
       return records;
     },
