@@ -14,6 +14,8 @@ const SAMPLE = [
 ];
 
 const AGE_DAYS = [0, 1, 800, 2, 3, 1000, 5];
+// The demo never sends: the app skips the network for demo accounts.
+const UNSUBSCRIBE = { 1: ['<https://example.com/one-click>', 'List-Unsubscribe=One-Click'], 2: ['<https://example.com/optout>', ''], 5: ['<mailto:leave@netflix.example?subject=stop>', ''] };
 const SIZE = [30e3, 25e3, 6e6, 12e3, 8e3, 7.5e6, 3e3];
 const cleanupHit = (m, f) => (!f.before || m.date < f.before) && (!f.larger || m.size > f.larger) && (!f.unread || m.unread);
 
@@ -23,6 +25,7 @@ export function createDemo() {
     id: `m${i}`, from, to, deliveredTo: to, subject, date: Date.now() - AGE_DAYS[i] * 864e5 - i * 3600e3, size: SIZE[i], snippet: body.replace(/<[^>]+>/g, ' '),
     unread: i % 2 === 0, labels: new Set(['INBOX']),
     html: body.startsWith('<') ? body : null, text: body.startsWith('<') ? null : body,
+    listUnsubscribe: UNSUBSCRIBE[i]?.[0] || '', listUnsubscribePost: UNSUBSCRIBE[i]?.[1] || '',
   }));
   const folders = [], rules = [];
   const each = (ids, fn) => { for (const m of mails) if (ids.includes(m.id)) fn(m); };

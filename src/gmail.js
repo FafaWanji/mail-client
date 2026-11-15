@@ -162,7 +162,8 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
 
     async getMessage(id) {
       const m = await api(`/messages/${id}`, { params: { format: 'full' } });
-      return { ...toMsg(m), ...pickBody(m.payload) };
+      const header = name => m.payload?.headers?.find(h => h.name.toLowerCase() === name)?.value || '';
+      return { ...toMsg(m), ...pickBody(m.payload), listUnsubscribe: header('list-unsubscribe'), listUnsubscribePost: header('list-unsubscribe-post') };
     },
 
     name: 'Gmail',

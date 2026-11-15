@@ -119,10 +119,13 @@ test('page token must point at graph', async () => {
 });
 
 test('getMessage splits html and text', async () => {
-  const { provider } = setup(() => reply(200, mail('1', 'a@x.com', ['me@outlook.com'], { body: { contentType: 'html', content: '<b>x</b>' } })));
+  const { provider } = setup(() => reply(200, mail('1', 'a@x.com', ['me@outlook.com'], { body: { contentType: 'html', content: '<b>x</b>' },
+    internetMessageHeaders: [{ name: 'List-Unsubscribe', value: '<https://u.com/x>' }] })));
   const m = await provider.getMessage('1');
   assert.equal(m.html, '<b>x</b>');
   assert.equal(m.text, null);
+  assert.equal(m.listUnsubscribe, '<https://u.com/x>');
+  assert.equal(m.listUnsubscribePost, '');
 });
 
 test('trash moves each mail to deleted items', async () => {

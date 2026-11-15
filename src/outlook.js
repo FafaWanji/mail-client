@@ -154,9 +154,11 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
     },
 
     async getMessage(id) {
-      const m = await api(`/messages/${id}`, { params: { $select: `${SELECT},body` } });
+      const m = await api(`/messages/${id}`, { params: { $select: `${SELECT},body,internetMessageHeaders` } });
       const html = m.body?.contentType === 'html';
-      return { ...toMsg(m), html: html ? m.body.content : null, text: !html && m.body ? m.body.content : null };
+      const header = name => m.internetMessageHeaders?.find(h => h.name.toLowerCase() === name)?.value || '';
+      return { ...toMsg(m), html: html ? m.body.content : null, text: !html && m.body ? m.body.content : null,
+        listUnsubscribe: header('list-unsubscribe'), listUnsubscribePost: header('list-unsubscribe-post') };
     },
 
     // trash, moveToFolder and applyRuleToExisting return a receipt for undo().

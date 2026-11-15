@@ -8,6 +8,7 @@ import { aliasAddress, extractAlias, senderAddress } from './alias.js';
 import { senderReport, senderKey, chunks, folderReport, sizeText } from './senders.js';
 import { RULE_CATALOG } from './rules.js';
 import { leakReport } from './leaks.js';
+import { parseUnsubscribe, mailtoParts } from './unsubscribe.js';
 
 const BULK_CONFIRM = 20; // trashing more than this many mails asks first
 
@@ -275,6 +276,8 @@ async function openMessage(id) {
     el('div', { textContent: `To: ${mail.deliveredTo || mail.to}` }),
     el('div', { className: 'muted', textContent: new Date(mail.date).toLocaleString() }));
   $('readTools').hidden = false;
+  const unsub = parseUnsubscribe(mail.listUnsubscribe, mail.listUnsubscribePost);
+  $('unsubscribe').hidden = !(unsub.oneClick || unsub.link || (unsub.mailto && provider.sendMail));
   $('frame').hidden = false;
   renderFrame(false);
   const listed = messages.find(m => m.id === id);
@@ -285,6 +288,34 @@ async function openMessage(id) {
   renderList();
 }
 $('showImages').onclick = () => renderFrame(true);
+$('unsubscribe').onclick = async () => {
+  const info = parseUnsubscribe(openMail.listUnsubscribe, openMail.listUnsubscribePost);
+  const done = await unsubscribe(info, senderName(openMail.from));
+  if (done.link) window.open(done.link, '_blank', 'noopener,noreferrer'); // the sender's own page finishes it
+  else if (done.text) status(done.text, !done.ok);
+};
+
+// ---------- unsubscribe ----------
+/**
+ * Uses the sender's List-Unsubscribe header. One-click (RFC 8058) is a bare POST; a mailto: is sent as a short mail.
+ * Returns { ok, text }, or { link } when only the sender's web page can do it.
+ */
+async function unsubscribe(info, name) {
+  if (info.oneClick) {
+    // no-cors and no cookies: the request carries nothing of this app or the browser, and its answer cannot be read.
+    const sent = current.kind === 'demo' || await fetch(info.oneClick, { method: 'POST', mode: 'no-cors', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'List-Unsubscribe=One-Click' }).then(() => true, () => false);
+    return sent ? { ok: true, text: `Unsubscribe request sent to ${name}.` } : { ok: false, text: `Could not reach ${name}'s unsubscribe address.` };
+  }
+  if (info.mailto && provider.sendMail) {
+    const { to, subject, body } = mailtoParts(info.mailto);
+    if (!confirm(`${name} unsubscribes by mail. Send "${subject}" from ${me} to ${to}?`)) return { ok: false, text: 'Nothing sent.' };
+    const sent = await run(() => provider.sendMail({ to, subject, text: body }).then(() => true));
+    return { ok: Boolean(sent), text: sent ? `Unsubscribe mail sent to ${to}.` : '' };
+  }
+  if (info.link) return { link: info.link };
+  return { ok: false, text: `${name} gives no way to unsubscribe.` };
+}
 
 // ---------- undo ----------
 // Only the last action can be undone. Receipts come from the provider; rules and scan records are what the app added or dropped.
@@ -682,6 +713,29 @@ const namesOf = list => (list.length <= 5 ? list.join(', ') : `${list.slice(0, 5
 $('sendersShow').onclick = () => {
   const senders = pickedList();
   if (senders.length) openBox({ title: `From ${namesOf(senders)}`, filter: { from: senders } });
+};
+$('sendersUnsub').onclick = async () => {
+  const senders = pickedList();
+  if (!senders.length || !confirm(`Unsubscribe from ${namesOf(senders)}? One-click requests go out at once; the others show a link or ask first.`)) return;
+  const sent = [], none = [], links = [];
+  for (const sender of senders) {
+    const page = await run(() => provider.listMessages({ folderId: 'ALL', filter: { from: sender } }));
+    // Not every mail of a sender carries the header, so the newest three are tried.
+    let info = parseUnsubscribe('');
+    for (const { id } of (page?.messages || []).slice(0, 3)) {
+      const mail = await run(() => provider.getMessage(id));
+      info = parseUnsubscribe(mail?.listUnsubscribe, mail?.listUnsubscribePost);
+      if (info.oneClick || info.link || info.mailto) break;
+    }
+    const done = await unsubscribe(info, sender);
+    if (done.link) links.push([sender, done.link]);
+    else (done.ok ? sent : none).push(sender);
+  }
+  // Pages cannot all be opened at once (popup blocker), so each gets its own button.
+  $('unsubLinks').replaceChildren(...links.map(([sender, link]) => el('li', {},
+    el('span', { textContent: `${sender} needs its own page:` }),
+    el('button', { textContent: 'Open unsubscribe page', onclick: () => window.open(link, '_blank', 'noopener,noreferrer') }))));
+  status([sent.length && `Done: ${namesOf(sent)}.`, links.length && `${links.length} need a page, see the list.`, none.length && `Not done: ${namesOf(none)}.`].filter(Boolean).join(' '));
 };
 $('sendersTrash').onclick = () => trashSenders(pickedList(), false);
 $('sendersBlock').onclick = () => trashSenders(pickedList(), true);

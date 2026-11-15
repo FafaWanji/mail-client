@@ -70,6 +70,7 @@
           <div class="toolbar" id="readTools" hidden>
             <button id="showImages">Show images</button>
             <button id="ruleFromMail">Rule from this mail</button>
+            <button id="unsubscribe" hidden>Unsubscribe</button>
           </div>
           <iframe id="frame" title="Mail content" hidden></iframe>
         </div>
@@ -105,8 +106,10 @@
           <button id="sendersTrash">Trash all</button>
           <button id="sendersBlock">Trash + block</button>
           <button id="sendersMove">Move to folder + rule</button>
+          <button id="sendersUnsub">Unsubscribe</button>
           <span id="sendersPicked" class="muted"></span>
         </div>
+        <ul id="unsubLinks"></ul>
         <ul id="senders"></ul>
       </section>
 
