@@ -8,7 +8,7 @@ export const MICROSOFT_ID = (config.MICROSOFT_CLIENT_ID || '').trim();
 
 // ---------- Google ----------
 const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/gmail.modify',         // read, label, trash
+  'https://www.googleapis.com/auth/gmail.modify',         // read, label, trash, send
   'https://www.googleapis.com/auth/gmail.settings.basic', // filters
 ];
 
@@ -44,6 +44,7 @@ const MS_SCOPES = [
   'https://graph.microsoft.com/Mail.ReadWrite',            // read, move, mark
   'https://graph.microsoft.com/MailboxSettings.ReadWrite', // inbox rules
   'https://graph.microsoft.com/User.Read',                 // own address
+  'https://graph.microsoft.com/Mail.Send',                 // reply, compose, unsubscribe by mail
 ].join(' ');
 
 const base64url = bytes => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');

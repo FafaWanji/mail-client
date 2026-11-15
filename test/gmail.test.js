@@ -327,3 +327,14 @@ test('scanAliases with no limit reads the whole mailbox', async () => {
   const known = new Map(Array.from({ length: 3000 }, (_, i) => [`k${i}`, { id: `k${i}`, size: 1 }]));
   assert.equal((await gmail.scanAliases(known, undefined, Infinity)).length, 3000);
 });
+
+test('sendMail posts a base64url message in the parent thread', async () => {
+  const { gmail, calls } = setup(() => reply(200, { id: 'S' }));
+  await gmail.sendMail({ to: 'a@b.com', subject: 'Re: x', text: 'hi', replyTo: { threadId: 'T1', messageId: '<1@b>' } });
+  assert.equal(path(calls[0].url), '/messages/send');
+  assert.equal(calls[0].body.threadId, 'T1');
+  assert.doesNotMatch(calls[0].body.raw, /[+/=]/);
+  const mime = Buffer.from(calls[0].body.raw, 'base64url').toString('utf8');
+  assert.match(mime, /^To: a@b\.com\r\nSubject: Re: x\r\n/);
+  assert.match(mime, /In-Reply-To: <1@b>/);
+});

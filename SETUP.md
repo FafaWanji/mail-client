@@ -24,7 +24,8 @@ Try the app first without any setup: run `Start.bat` and click "Open the demo wi
    https://www.googleapis.com/auth/gmail.settings.basic
    ```
 
-   The first one lets the app read, label and trash mail. The second one lets it manage filters.
+   The first one lets the app read, label and trash mail, and send mail (only when you press Send
+   or confirm an unsubscribe mail). The second one lets it manage filters.
 
    For **Empty for good** (Trash and Spam) also add this line. Google asks for it only when you press that button:
 

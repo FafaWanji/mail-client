@@ -1,6 +1,7 @@
 import { extractAlias, senderDomain } from './alias.js';
 import { toOutlookRule, fromOutlookRule, describeOutlookRule, OUTLOOK_SUPPORT } from './rules.js';
 import { AuthExpired, pool } from './gmail.js';
+import { parseAddresses } from './compose.js';
 
 const GRAPH = 'https://graph.microsoft.com/';
 const BASE = `${GRAPH}v1.0/me`;
@@ -159,6 +160,13 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       const header = name => m.internetMessageHeaders?.find(h => h.name.toLowerCase() === name)?.value || '';
       return { ...toMsg(m), html: html ? m.body.content : null, text: !html && m.body ? m.body.content : null,
         listUnsubscribe: header('list-unsubscribe'), listUnsubscribePost: header('list-unsubscribe-post') };
+    },
+
+    /** replyTo: the mail answered. Outlook then sets subject, threading and the quoted original itself. */
+    async sendMail({ to, subject, text, replyTo }) {
+      const toRecipients = parseAddresses([].concat(to).join(', ')).map(address => ({ emailAddress: { address } }));
+      if (replyTo) return void await api(`/messages/${replyTo.id}/reply`, { method: 'POST', body: { message: { toRecipients }, comment: text } });
+      await api('/sendMail', { method: 'POST', body: { message: { subject, body: { contentType: 'Text', content: text }, toRecipients }, saveToSentItems: true } });
     },
 
     // trash, moveToFolder and applyRuleToExisting return a receipt for undo().

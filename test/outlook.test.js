@@ -272,3 +272,13 @@ test('emptyFolder deletes Junk for good', async () => {
   assert.equal(path(calls[0].url), '/mailFolders/junkemail/messages');
   assert.deepEqual(calls.filter(c => c.init.method === 'POST').map(c => path(c.url)).sort(), ['/messages/a/permanentDelete', '/messages/b/permanentDelete']);
 });
+
+test('sendMail and reply', async () => {
+  const { provider, calls } = setup(() => reply(202));
+  await provider.sendMail({ to: 'a@b.com, c@d.com', subject: 'Hi', text: 'x' });
+  assert.equal(path(calls[0].url), '/sendMail');
+  assert.deepEqual(calls[0].body.message.toRecipients.map(r => r.emailAddress.address), ['a@b.com', 'c@d.com']);
+  await provider.sendMail({ to: 'a@b.com', subject: 'ignored', text: 'y', replyTo: { id: 'M1' } });
+  assert.equal(path(calls[1].url), '/messages/M1/reply');
+  assert.equal(calls[1].body.comment, 'y');
+});

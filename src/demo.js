@@ -69,6 +69,9 @@ export function createDemo() {
     },
     countMessages: async filter => ({ count: mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)).length, more: false }),
     trashMessages: async filter => changed(mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)), m => m.labels.add('TRASH')),
+    // The demo keeps sent mail in a list instead of sending it.
+    sent: [],
+    async sendMail(mail) { this.sent.push(mail); },
     getMessage: async id => mails.find(m => m.id === id),
     trash: async ids => changed(pick(ids), m => m.labels.add('TRASH')),
     undo: async receipt => { for (const { m, labels, unread } of receipt.before) Object.assign(m, { labels, unread }); },

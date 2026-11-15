@@ -1,6 +1,7 @@
 import { extractAlias, senderDomain, senderAddress } from './alias.js';
 import { toGmailFilter, fromGmailFilter, ruleToSearch, describeGmailFilter, GMAIL_SUPPORT } from './rules.js';
 import { pickBody } from './mailbody.js';
+import { buildMime, base64url } from './compose.js';
 
 const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const PAGE = 50;          // mails per list page
@@ -163,7 +164,15 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
     async getMessage(id) {
       const m = await api(`/messages/${id}`, { params: { format: 'full' } });
       const header = name => m.payload?.headers?.find(h => h.name.toLowerCase() === name)?.value || '';
-      return { ...toMsg(m), ...pickBody(m.payload), listUnsubscribe: header('list-unsubscribe'), listUnsubscribePost: header('list-unsubscribe-post') };
+      return { ...toMsg(m), ...pickBody(m.payload), listUnsubscribe: header('list-unsubscribe'), listUnsubscribePost: header('list-unsubscribe-post'),
+        messageId: header('message-id'), references: header('references'), threadId: m.threadId };
+    },
+
+    /** replyTo: the mail answered, as getMessage returned it. */
+    async sendMail({ to, subject, text, replyTo }) {
+      const body = { raw: base64url(buildMime({ to, subject, text, replyTo })) };
+      if (replyTo?.threadId) body.threadId = replyTo.threadId;
+      await api('/messages/send', { method: 'POST', body });
     },
 
     name: 'Gmail',

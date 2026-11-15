@@ -9,6 +9,7 @@ import { senderReport, senderKey, chunks, folderReport, sizeText } from './sende
 import { RULE_CATALOG } from './rules.js';
 import { leakReport } from './leaks.js';
 import { parseUnsubscribe, mailtoParts } from './unsubscribe.js';
+import { parseAddresses, replySubject } from './compose.js';
 
 const BULK_CONFIRM = 20; // trashing more than this many mails asks first
 
@@ -293,6 +294,39 @@ $('unsubscribe').onclick = async () => {
   const done = await unsubscribe(info, senderName(openMail.from));
   if (done.link) window.open(done.link, '_blank', 'noopener,noreferrer'); // the sender's own page finishes it
   else if (done.text) status(done.text, !done.ok);
+};
+
+// ---------- compose ----------
+let replyingTo = null; // the open mail when the dialog is a reply
+function openCompose({ to = '', subject = '', replyTo = null } = {}) {
+  replyingTo = replyTo;
+  $('composeTitle').textContent = replyTo ? 'Reply' : 'New mail';
+  $('composeFrom').textContent = me;
+  $('composeTo').value = to;
+  $('composeSubject').value = subject;
+  $('composeText').value = '';
+  $('composeError').textContent = '';
+  $('composeDialog').showModal();
+}
+$('compose').onclick = () => openCompose();
+$('reply').onclick = () => openCompose({ to: senderAddress(openMail.from), subject: replySubject(openMail.subject), replyTo: openMail });
+$('composeForm').onsubmit = async event => {
+  if (event.submitter?.value !== 'send') return; // Cancel closes the dialog as usual
+  event.preventDefault();
+  const mail = { to: $('composeTo').value, subject: $('composeSubject').value, text: $('composeText').value, replyTo: replyingTo };
+  try {
+    parseAddresses(mail.to);
+    document.body.classList.add('busy');
+    await provider.sendMail(mail);
+  } catch (error) {
+    if (error instanceof AuthExpired) { $('composeDialog').close(); return expire(current); }
+    $('composeError').textContent = error.message; // shown in the dialog, the status line sits behind it
+    return;
+  } finally {
+    document.body.classList.remove('busy');
+  }
+  $('composeDialog').close();
+  status(`Sent to ${mail.to}.`);
 };
 
 // ---------- unsubscribe ----------

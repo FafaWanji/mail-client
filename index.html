@@ -21,6 +21,7 @@
   <div id="app" hidden>
     <aside>
       <select id="accountSelect" aria-label="Account"></select>
+      <button id="compose">Write mail</button>
       <div class="toolbar">
         <button id="addGmail" hidden>+ Gmail</button>
         <button id="addOutlook" hidden>+ Outlook</button>
@@ -68,6 +69,7 @@
         <div id="readPane">
           <div id="readHead" class="muted">Select a mail.</div>
           <div class="toolbar" id="readTools" hidden>
+            <button id="reply">Reply</button>
             <button id="showImages">Show images</button>
             <button id="ruleFromMail">Rule from this mail</button>
             <button id="unsubscribe" hidden>Unsubscribe</button>
@@ -135,6 +137,21 @@
     <div id="status" role="status"></div>
     <button id="undo" hidden></button>
   </div>
+
+  <dialog id="composeDialog">
+    <form method="dialog" id="composeForm">
+      <h3 id="composeTitle">New mail</h3>
+      <p class="muted">From <span id="composeFrom"></span></p>
+      <input id="composeTo" placeholder="To (several: separate with commas)" aria-label="To">
+      <input id="composeSubject" placeholder="Subject" aria-label="Subject">
+      <textarea id="composeText" rows="12" aria-label="Message"></textarea>
+      <p id="composeError" class="error" role="alert"></p>
+      <div class="toolbar">
+        <button value="send">Send</button>
+        <button value="">Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="folderDialog">
     <form method="dialog">
