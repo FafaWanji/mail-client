@@ -37,6 +37,7 @@
       <ul id="aliases"></ul>
       <nav>
         <button data-view="senders">Senders</button>
+        <button data-view="cleanup">Cleanup</button>
         <button data-view="rules">Rules</button>
         <button data-view="leaks">Leaks <span id="leakCount"></span></button>
         <button id="signOut">Sign out</button>
@@ -104,6 +105,18 @@
           <span id="sendersPicked" class="muted"></span>
         </div>
         <ul id="senders"></ul>
+      </section>
+
+      <section id="view-cleanup" hidden>
+        <h2>Cleanup</h2>
+        <p class="muted">Find mail by age, size, or because it was never opened. Every filled-in condition must match. "Trash all" covers the whole mailbox.</p>
+        <form id="cleanup" class="toolbar">
+          <label>Older than <input id="cleanYears" type="number" min="0" step="0.5"> years</label>
+          <label>Larger than <input id="cleanMB" type="number" min="0" step="0.5"> MB</label>
+          <label><input id="cleanUnread" type="checkbox"> Never opened (unread)</label>
+          <button>Show mail</button>
+          <button type="button" id="cleanTrash">Trash all</button>
+        </form>
       </section>
 
       <section id="view-leaks" hidden>

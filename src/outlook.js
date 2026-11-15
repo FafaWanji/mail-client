@@ -40,6 +40,10 @@ function replaySearch(rule) {
   return parts.length ? parts.join(' AND ') : null;
 }
 
+// Cleanup parts of a filter in Outlook's search language. Unread cannot be searched: callers drop read mail themselves.
+const day = ms => new Date(ms).toISOString().slice(0, 10);
+const cleanupSearch = filter => [filter.before && `received<${day(filter.before)}`, filter.larger && `size>${Math.round(filter.larger)}`].filter(Boolean);
+
 // One sender, or a list of senders of which any may match.
 function fromSearch(from) {
   const list = [].concat(from || []).map(f => `from:${f}`);
@@ -95,6 +99,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
     }
   }
 
+  // shortcut: at most `limit` mails per click, like the other bulk actions on Outlook
+  async function cleanupFind(filter, limit) {
+    const search = cleanupSearch(filter);
+    if (!search.length && !filter.unread) throw new Error('Pick at least one cleanup condition.');
+    const params = { $select: 'id,parentFolderId,isRead', $top: 500 };
+    if (search.length) params.$search = `"${search.join(' AND ')}"`; else params.$filter = 'isRead eq false';
+    const found = await pages('/messages', params, limit);
+    return found.filter(m => !filter.unread || m.isRead === false);
+  }
+
   async function ownAddress() {
     if (!own) {
       const user = await api('', { params: { $select: 'mail,userPrincipalName' } });
@@ -123,14 +137,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       if (pageToken) {
         page = await api(pageToken);
       } else {
-        const search = [query, filter.to && `to:${filter.to}`, fromSearch(filter.from)].filter(Boolean).join(' AND ');
+        const search = [query, filter.to && `to:${filter.to}`, fromSearch(filter.from), ...cleanupSearch(filter)].filter(Boolean).join(' AND ');
         const folder = filter.trash ? 'deleteditems' : folderId === 'ALL' ? null : folderId || (search ? null : 'inbox');
         const params = { $top: PAGE, $select: SELECT };
         if (search) params.$search = `"${search.replaceAll('"', '')}"`; // Graph does not allow sorting together with search
         else params.$orderby = 'receivedDateTime desc';
         page = await api(folder ? `/mailFolders/${folder}/messages` : '/messages', { params });
       }
-      return { messages: (page?.value || []).map(toMsg), nextPageToken: page?.['@odata.nextLink'] || null };
+      // shortcut: unread is dropped per page, so an unread-only page can show fewer than 50; use $filter if that bothers
+      const messages = (page?.value || []).map(toMsg).filter(m => !filter.unread || m.unread);
+      return { messages, nextPageToken: page?.['@odata.nextLink'] || null };
     },
 
     async getMessage(id) {
@@ -178,6 +194,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       return { id };
     },
     setRuleEnabled: (id, isEnabled) => api(`/mailFolders/inbox/messageRules/${id}`, { method: 'PATCH', body: { isEnabled } }),
+
+    async countMessages(filter) {
+      const found = await cleanupFind(filter, 500);
+      return { count: found.length, more: found.length >= 500 };
+    },
+    async trashMessages(filter) {
+      const found = await cleanupFind(filter, SCAN_LIMIT);
+      const moves = await each(found, async ({ id, parentFolderId }) => ({ id: await move(id, 'deleteditems'), folderId: parentFolderId }));
+      return { count: found.length, moves };
+    },
 
     async countMatching(rule) {
       const search = replaySearch(rule);

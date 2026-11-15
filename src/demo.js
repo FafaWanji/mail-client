@@ -13,10 +13,14 @@ const SAMPLE = [
   ['Alex <alex@example.org>', 'demo@gmail.com', 'Lunch?', 'Friday at 12?'],
 ];
 
+const AGE_DAYS = [0, 1, 800, 2, 3, 1000, 5];
+const SIZE = [30e3, 25e3, 6e6, 12e3, 8e3, 7.5e6, 3e3];
+const cleanupHit = (m, f) => (!f.before || m.date < f.before) && (!f.larger || m.size > f.larger) && (!f.unread || m.unread);
+
 export function createDemo() {
   let nextId = 1;
   const mails = SAMPLE.map(([from, to, subject, body], i) => ({
-    id: `m${i}`, from, to, deliveredTo: to, subject, date: Date.now() - i * 3600e3, snippet: body.replace(/<[^>]+>/g, ' '),
+    id: `m${i}`, from, to, deliveredTo: to, subject, date: Date.now() - AGE_DAYS[i] * 864e5 - i * 3600e3, size: SIZE[i], snippet: body.replace(/<[^>]+>/g, ' '),
     unread: i % 2 === 0, labels: new Set(['INBOX']),
     html: body.startsWith('<') ? body : null, text: body.startsWith('<') ? null : body,
   }));
@@ -49,9 +53,11 @@ export function createDemo() {
         m.labels.has('TRASH') === trash &&
         (trash || words.length || senders.length || folderId === 'ALL' || m.labels.has(folderId || 'INBOX')) &&
         (!senders.length || senders.some(s => m.from.toLowerCase().includes(s))) &&
-        words.every(w => `${m.from} ${m.to} ${m.subject}`.toLowerCase().includes(w)));
+        words.every(w => `${m.from} ${m.to} ${m.subject}`.toLowerCase().includes(w)) && cleanupHit(m, filter));
       return { messages, nextPageToken: null };
     },
+    countMessages: async filter => ({ count: mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)).length, more: false }),
+    trashMessages: async filter => changed(mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)), m => m.labels.add('TRASH')),
     getMessage: async id => mails.find(m => m.id === id),
     trash: async ids => changed(pick(ids), m => m.labels.add('TRASH')),
     undo: async receipt => { for (const { m, labels, unread } of receipt.before) Object.assign(m, { labels, unread }); },

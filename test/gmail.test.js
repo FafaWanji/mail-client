@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGmail, AuthExpired } from '../src/gmail.js';
+import { createGmail, AuthExpired, gmailSearch } from '../src/gmail.js';
 
 const reply = (status, body) => ({
   status, ok: status >= 200 && status < 300,
@@ -289,4 +289,18 @@ test('recreateRule posts the kept definition without its old id', async () => {
   const { gmail, calls } = setup(() => reply(200, { id: 'N' }));
   await gmail.recreateRule({ id: 'OLD', criteria: { from: 'a' }, action: { addLabelIds: ['TRASH'] } });
   assert.deepEqual(calls[0].body, { criteria: { from: 'a' }, action: { addLabelIds: ['TRASH'] } });
+});
+
+test('cleanup filter becomes a Gmail search', () => {
+  assert.equal(gmailSearch('', { before: Date.UTC(2024, 10, 15), larger: 5 * 1048576, unread: true }), 'before:2024/11/15 larger:5242880 is:unread');
+});
+
+test('trashMessages trashes every match and undo takes all of them out of Trash', async () => {
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204)
+    : u.searchParams.get('pageToken') ? reply(200, { messages: [{ id: '3' }] }) : reply(200, { messages: [{ id: '1' }, { id: '2' }], nextPageToken: 'P' })));
+  const receipt = await gmail.trashMessages({ larger: 1000 });
+  assert.equal(calls[0].url.searchParams.get('q'), 'larger:1000');
+  assert.equal(receipt.count, 3);
+  await gmail.undo(receipt);
+  assert.deepEqual(calls.at(-1).body, { ids: ['1', '2', '3'], removeLabelIds: ['TRASH'] });
 });

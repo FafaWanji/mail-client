@@ -247,3 +247,18 @@ test('updateRule patches without touching order or on/off state', async () => {
   await provider.setRuleEnabled('R1', false);
   assert.deepEqual(calls.at(-1).body, { isEnabled: false });
 });
+
+test('cleanup searches by date and size and drops read mail itself', async () => {
+  const { provider, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(201, { id: 'n' })
+    : reply(200, { value: [{ id: '1', parentFolderId: 'P', isRead: true }, { id: '2', parentFolderId: 'P', isRead: false }] })));
+  const receipt = await provider.trashMessages({ before: Date.UTC(2024, 10, 15), larger: 2048, unread: true });
+  assert.equal(calls[0].url.searchParams.get('$search'), '"received<2024-11-15 AND size>2048"');
+  assert.deepEqual(receipt, { count: 1, moves: [{ id: 'n', folderId: 'P' }] });
+});
+
+test('cleanup by unread alone uses a filter, and nothing at all is refused', async () => {
+  const { provider, calls } = setup(() => reply(200, { value: [] }));
+  await provider.countMessages({ unread: true });
+  assert.equal(calls[0].url.searchParams.get('$filter'), 'isRead eq false');
+  await assert.rejects(provider.countMessages({}), /at least one/);
+});

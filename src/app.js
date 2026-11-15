@@ -152,7 +152,7 @@ $('signOut').onclick = () => location.reload(); // tokens live in memory only, s
 
 // ---------- views ----------
 function showView(name) {
-  for (const view of ['mail', 'senders', 'rules', 'leaks']) $(`view-${view}`).hidden = view !== name;
+  for (const view of ['mail', 'senders', 'cleanup', 'rules', 'leaks']) $(`view-${view}`).hidden = view !== name;
   if (name === 'senders') renderSenders();
   if (name === 'rules') refreshRules();
   if (name === 'leaks') renderLeaks();
@@ -673,6 +673,35 @@ async function trashSenders(senders, block, folderId) {
   offerUndo(`${folderId ? 'move + rule' : block ? 'trash + block' : 'trash'} ${mailsText(changed)}`, receipts, { rules: made, records });
   if (changed || block) status(`${changed} mails moved ${where}.${block ? ` Future mail from these senders goes ${where}.` : ''}`);
 }
+
+// ---------- cleanup ----------
+function cleanupFilter() {
+  const years = Number($('cleanYears').value), mb = Number($('cleanMB').value), unread = $('cleanUnread').checked;
+  const filter = {};
+  if (years > 0) filter.before = Date.now() - years * 365.25 * 864e5;
+  if (mb > 0) filter.larger = mb * 1048576;
+  if (unread) filter.unread = true;
+  const words = [years > 0 && `older than ${years} years`, mb > 0 && `larger than ${mb} MB`, unread && 'never opened'].filter(Boolean);
+  if (!words.length) status('Fill in at least one condition.', true);
+  return words.length ? { filter, words: words.join(', ') } : null;
+}
+$('cleanup').onsubmit = event => {
+  event.preventDefault();
+  const pick = cleanupFilter();
+  if (pick) openBox({ title: `Cleanup: ${pick.words}`, folderId: 'ALL', filter: pick.filter });
+};
+$('cleanTrash').onclick = async () => {
+  const pick = cleanupFilter();
+  if (!pick) return;
+  const match = await run(() => provider.countMessages(pick.filter));
+  if (!match) return;
+  if (!match.count) return status('No mail outside Trash matches.');
+  if (!confirm(`Move ${match.count}${match.more ? '+' : ''} mails (${pick.words}) to Trash?`)) return;
+  const receipt = await run(() => provider.trashMessages(pick.filter));
+  if (!receipt) return;
+  status(`${mailsText(receipt.count)} moved to Trash.`);
+  offerUndo(`cleanup ${mailsText(receipt.count)}`, [receipt]);
+};
 
 // ---------- leaks ----------
 // shortcut: trust marks live in this browser only; move them into the mail account if they must survive a browser reset

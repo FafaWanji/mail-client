@@ -13,6 +13,18 @@ const HEADERS = ['From', 'To', 'Subject', 'Delivered-To'];
 
 export class AuthExpired extends Error {}
 
+/** Gmail search text for the user's query plus the app's filter (see listMessages). */
+export function gmailSearch(query, filter = {}) {
+  return [query,
+    filter.to && `to:("${filter.to}")`,
+    filter.from && `from:(${[].concat(filter.from).map(f => `"${f}"`).join(' OR ')})`,
+    filter.trash && 'in:trash',
+    filter.before && `before:${new Date(filter.before).toISOString().slice(0, 10).replaceAll('-', '/')}`,
+    filter.larger && `larger:${Math.round(filter.larger)}`,
+    filter.unread && 'is:unread',
+  ].filter(Boolean).join(' ');
+}
+
 export async function pool(items, worker, parallel = PARALLEL) {
   const out = new Array(items.length);
   let next = 0;
@@ -135,10 +147,12 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
   return {
     ownAddress,
 
-    /** query: the user's own search text. filter: { to?, from? (one or a list), trash? } built by the app, same for every provider. */
+    /**
+     * query: the user's own search text. filter, built by the app, same for every provider:
+     * { to?, from? (one or a list), trash?, before? (ms timestamp), larger? (bytes), unread? }
+     */
     async listMessages({ folderId, query, filter = {}, pageToken } = {}) {
-      const q = [query, filter.to && `to:("${filter.to}")`, filter.from && `from:(${[].concat(filter.from).map(f => `"${f}"`).join(' OR ')})`, filter.trash && 'in:trash']
-        .filter(Boolean).join(' ');
+      const q = gmailSearch(query, filter);
       const labelIds = folderId === 'ALL' ? undefined : folderId || (q ? undefined : 'INBOX');
       const page = await api('/messages', { params: { maxResults: PAGE, q, labelIds, pageToken } });
       const messages = await pool(page?.messages || [], async m => toMsg(await metadata(m.id)));
@@ -207,6 +221,16 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       if (!ids.length) return { count: 0, ops: [] };
       // A search never finds mail in Trash or Spam, so those labels need no lookup.
       return change(ids, add, remove, await labelsOfSearch(q, [...add, ...remove].filter(l => l !== 'TRASH' && l !== 'SPAM')));
+    },
+
+    /** Cleanup: how many mails outside Trash match a filter, and moving all of them to Trash. */
+    async countMessages(filter) {
+      const page = await api('/messages', { params: { q: gmailSearch('', filter), maxResults: 500 } });
+      return { count: (page?.messages || []).length, more: Boolean(page?.nextPageToken) };
+    },
+    async trashMessages(filter) {
+      const ids = await listIds({ q: gmailSearch('', filter) }, Infinity);
+      return change(ids, ['TRASH'], [], new Map()); // a search never finds mail already in Trash
     },
 
     async countMatching(rule) {
