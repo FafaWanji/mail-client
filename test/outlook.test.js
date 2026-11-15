@@ -262,3 +262,10 @@ test('cleanup by unread alone uses a filter, and nothing at all is refused', asy
   assert.equal(calls[0].url.searchParams.get('$filter'), 'isRead eq false');
   await assert.rejects(provider.countMessages({}), /at least one/);
 });
+
+test('emptyFolder deletes Junk for good', async () => {
+  const { provider, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204) : reply(200, { value: [{ id: 'a' }, { id: 'b' }] })));
+  assert.equal(await provider.emptyFolder('spam'), 2);
+  assert.equal(path(calls[0].url), '/mailFolders/junkemail/messages');
+  assert.deepEqual(calls.filter(c => c.init.method === 'POST').map(c => path(c.url)).sort(), ['/messages/a/permanentDelete', '/messages/b/permanentDelete']);
+});

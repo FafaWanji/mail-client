@@ -1,5 +1,5 @@
 
-import { googleSignIn, microsoftSignIn, GOOGLE_ID, MICROSOFT_ID } from './auth.js';
+import { googleSignIn, microsoftSignIn, GOOGLE_ID, MICROSOFT_ID, GOOGLE_FULL } from './auth.js';
 import { createGmail, AuthExpired } from './gmail.js';
 import { createOutlook } from './outlook.js';
 import { createDemo } from './demo.js';
@@ -163,6 +163,7 @@ const BOXES = {
   inbox: { title: 'Inbox' },
   all: { title: 'All Mail', folderId: 'ALL' },
   trash: { title: 'Trash', filter: { trash: true } },
+  spam: { title: 'Spam', filter: { spam: true } },
 };
 for (const button of document.querySelectorAll('[data-box]')) button.onclick = () => openBox(BOXES[button.dataset.box]);
 
@@ -171,6 +172,7 @@ async function openBox(next) {
   box = next;
   showView('mail');
   $('boxTitle').textContent = box.title;
+  $('actEmpty').hidden = !(box === BOXES.trash || box === BOXES.spam);
   messages = [];
   selected.clear();
   closeMail();
@@ -312,6 +314,25 @@ $('actMove').onclick = async () => {
   if (!targets().length) return;
   const folderId = await pickFolder();
   if (folderId) act(ids => provider.moveToFolder(ids, folderId), 'move');
+};
+
+// The only permanent delete in the app.
+$('actEmpty').onclick = async () => {
+  const which = box === BOXES.trash ? 'trash' : 'spam', name = box.title, account = current;
+  if (account.kind === 'gmail' && !account.fullAccess) {
+    // Asked here, while the click still allows a popup. The token then also holds the normal scopes.
+    try { account.token = await googleSignIn(account.address, [GOOGLE_FULL]); } catch (error) { return status(error.message, true); }
+    account.fullAccess = true;
+  }
+  const count = await run(() => provider.folderCount(which));
+  if (count === undefined) return;
+  if (!count) return status(`${name} is empty.`);
+  const typed = prompt(`Delete all ${mailsText(count)} in ${name} of ${me} for good?\nThis cannot be undone, not even in ${account.kind === 'outlook' ? 'Outlook' : 'Gmail'}.\n\nType DELETE to confirm.`);
+  if (typed !== 'DELETE') return status('Nothing deleted.');
+  const gone = await run(() => provider.emptyFolder(which));
+  if (gone !== undefined) status(`${mailsText(gone)} deleted for good.`);
+  offerUndo(null); // an older receipt may point at mail that is gone now
+  await openBox(box);
 };
 
 // ---------- folders ----------

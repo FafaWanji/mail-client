@@ -12,6 +12,8 @@ const SELECT = 'id,from,toRecipients,subject,receivedDateTime,bodyPreview,isRead
 // Graph has no size field on a message; PR_MESSAGE_SIZE (0x0E08) holds it.
 const SIZE_PROP = "singleValueExtendedProperties($filter=id eq 'Integer 0x0E08')";
 
+const WELL_KNOWN = { trash: 'deleteditems', spam: 'junkemail' };
+
 const address = recipient => recipient?.emailAddress?.address || '';
 
 function toMsg(m) {
@@ -140,7 +142,7 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
         page = await api(pageToken);
       } else {
         const search = [query, filter.to && `to:${filter.to}`, fromSearch(filter.from), ...cleanupSearch(filter)].filter(Boolean).join(' AND ');
-        const folder = filter.trash ? 'deleteditems' : folderId === 'ALL' ? null : folderId || (search ? null : 'inbox');
+        const folder = filter.trash ? 'deleteditems' : filter.spam ? 'junkemail' : folderId === 'ALL' ? null : folderId || (search ? null : 'inbox');
         const params = { $top: PAGE, $select: SELECT };
         if (search) params.$search = `"${search.replaceAll('"', '')}"`; // Graph does not allow sorting together with search
         else params.$orderby = 'receivedDateTime desc';
@@ -196,6 +198,16 @@ export function createOutlook({ getToken, fetch: doFetch = (...a) => globalThis.
       return { id };
     },
     setRuleEnabled: (id, isEnabled) => api(`/mailFolders/inbox/messageRules/${id}`, { method: 'PATCH', body: { isEnabled } }),
+
+    async folderCount(which) {
+      return (await api(`/mailFolders/${WELL_KNOWN[which]}`, { params: { $select: 'totalItemCount' } }))?.totalItemCount || 0;
+    },
+    /** Deletes every mail in Deleted Items or Junk for good (not to Recoverable Items' undo list). Returns the count. */
+    async emptyFolder(which) {
+      const found = await pages(`/mailFolders/${WELL_KNOWN[which]}/messages`, { $select: 'id', $top: 500 }, Infinity);
+      await each(found, ({ id }) => api(`/messages/${id}/permanentDelete`, { method: 'POST' }));
+      return found.length;
+    },
 
     async countMessages(filter) {
       const found = await cleanupFind(filter, 500);

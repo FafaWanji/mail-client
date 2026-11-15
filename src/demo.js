@@ -46,6 +46,7 @@ export function createDemo() {
     ownAddress: async () => ME,
     aliasCondition: address => ({ sentToAddresses: [address] }),
     async listMessages({ folderId, query, filter = {} } = {}) {
+      if (filter.spam) return { messages: [], nextPageToken: null };
       const trash = Boolean(filter.trash);
       const words = [query, filter.to].filter(Boolean).map(w => w.toLowerCase());
       const senders = [].concat(filter.from || []);
@@ -55,6 +56,13 @@ export function createDemo() {
         (!senders.length || senders.some(s => m.from.toLowerCase().includes(s))) &&
         words.every(w => `${m.from} ${m.to} ${m.subject}`.toLowerCase().includes(w)) && cleanupHit(m, filter));
       return { messages, nextPageToken: null };
+    },
+    folderCount: async which => (which === 'trash' ? mails.filter(m => m.labels.has('TRASH')).length : 0),
+    async emptyFolder(which) {
+      if (which !== 'trash') return 0;
+      const gone = mails.filter(m => m.labels.has('TRASH'));
+      for (const m of gone) mails.splice(mails.indexOf(m), 1);
+      return gone.length;
     },
     countMessages: async filter => ({ count: mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)).length, more: false }),
     trashMessages: async filter => changed(mails.filter(m => !m.labels.has('TRASH') && cleanupHit(m, filter)), m => m.labels.add('TRASH')),

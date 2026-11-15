@@ -25,7 +25,12 @@ Try the app first without any setup: run `Start.bat` and click "Open the demo wi
    ```
 
    The first one lets the app read, label and trash mail. The second one lets it manage filters.
-   The app cannot send mail and cannot delete mail permanently.
+
+   For **Empty for good** (Trash and Spam) also add this line. Google asks for it only when you press that button:
+
+   ```
+   https://mail.google.com/
+   ```
 7. **Clients > Create client**.
    - Application type: **Web application**.
    - Authorized JavaScript origins: **Add URI**, enter exactly `http://localhost:8080`

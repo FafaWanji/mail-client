@@ -19,6 +19,7 @@ export function gmailSearch(query, filter = {}) {
     filter.to && `to:("${filter.to}")`,
     filter.from && `from:(${[].concat(filter.from).map(f => `"${f}"`).join(' OR ')})`,
     filter.trash && 'in:trash',
+    filter.spam && 'in:spam',
     filter.before && `before:${new Date(filter.before).toISOString().slice(0, 10).replaceAll('-', '/')}`,
     filter.larger && `larger:${Math.round(filter.larger)}`,
     filter.unread && 'is:unread',
@@ -221,6 +222,17 @@ export function createGmail({ getToken, fetch: doFetch = (...a) => globalThis.fe
       if (!ids.length) return { count: 0, ops: [] };
       // A search never finds mail in Trash or Spam, so those labels need no lookup.
       return change(ids, add, remove, await labelsOfSearch(q, [...add, ...remove].filter(l => l !== 'TRASH' && l !== 'SPAM')));
+    },
+
+    /** Mail in Trash or Spam (`which`: 'trash' | 'spam'). */
+    async folderCount(which) {
+      return (await api(`/labels/${which.toUpperCase()}`))?.messagesTotal || 0;
+    },
+    /** Deletes every mail in Trash or Spam for good. Needs the full-access token. Returns the count. */
+    async emptyFolder(which) {
+      const ids = await listIds({ labelIds: which.toUpperCase(), includeSpamTrash: true }, Infinity);
+      for (let i = 0; i < ids.length; i += BATCH) await api('/messages/batchDelete', { method: 'POST', body: { ids: ids.slice(i, i + BATCH) } });
+      return ids.length;
     },
 
     /** Cleanup: how many mails outside Trash match a filter, and moving all of them to Trash. */

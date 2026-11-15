@@ -12,20 +12,24 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.settings.basic', // filters
 ];
 
-/** Opens Google's sign-in and resolves to an access token. `hint` preselects an address. */
-export function googleSignIn(hint) {
+// Full access is the only Gmail scope that can delete for good. It is asked for on the Empty click, never at sign-in.
+export const GOOGLE_FULL = 'https://mail.google.com/';
+
+/** Opens Google's sign-in and resolves to an access token. `hint` preselects an address; `extra` adds scopes. */
+export function googleSignIn(hint, extra = []) {
+  const scopes = [...GOOGLE_SCOPES, ...extra];
   return new Promise((resolve, reject) => {
     const oauth = window.google?.accounts?.oauth2;
     if (!oauth) return reject(new Error('Google sign-in did not load. Check the internet connection and reload.'));
     oauth.initTokenClient({
       client_id: GOOGLE_ID,
-      scope: GOOGLE_SCOPES.join(' '),
+      scope: scopes.join(' '),
       prompt: hint ? '' : 'select_account',
       login_hint: hint,
       callback: response => {
         if (response.error) return reject(new Error(response.error_description || response.error));
-        if (!oauth.hasGrantedAllScopes(response, ...GOOGLE_SCOPES)) {
-          return reject(new Error('Both permissions are needed (mail and filters). Sign in again and tick both.'));
+        if (!oauth.hasGrantedAllScopes(response, ...scopes)) {
+          return reject(new Error(extra.length ? 'The extra permission was not given. Nothing was deleted.' : 'Both permissions are needed (mail and filters). Sign in again and tick both.'));
         }
         resolve(response.access_token);
       },

@@ -304,3 +304,14 @@ test('trashMessages trashes every match and undo takes all of them out of Trash'
   await gmail.undo(receipt);
   assert.deepEqual(calls.at(-1).body, { ids: ['1', '2', '3'], removeLabelIds: ['TRASH'] });
 });
+
+test('emptyFolder lists Trash and deletes it in batches of 1000', async () => {
+  const ids = Array.from({ length: 1200 }, (_, i) => ({ id: `m${i}` }));
+  const { gmail, calls } = setup((u, c) => (c.init.method === 'POST' ? reply(204)
+    : u.searchParams.get('pageToken') ? reply(200, { messages: ids.slice(500) }) : reply(200, { messages: ids.slice(0, 500), nextPageToken: 'P' })));
+  assert.equal(await gmail.emptyFolder('trash'), 1200);
+  assert.equal(calls[0].url.searchParams.get('labelIds'), 'TRASH');
+  assert.equal(calls[0].url.searchParams.get('includeSpamTrash'), 'true');
+  const posts = calls.filter(c => c.init.method === 'POST');
+  assert.deepEqual(posts.map(c => [path(c.url), c.body.ids.length]), [['/messages/batchDelete', 1000], ['/messages/batchDelete', 200]]);
+});
