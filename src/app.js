@@ -779,7 +779,7 @@ $('sendersShow').onclick = () => {
 };
 $('sendersUnsub').onclick = async () => {
   const senders = pickedList();
-  if (!senders.length || !confirm(`Unsubscribe from ${namesOf(senders)}? Requests and unsubscribe mails go out at once; senders that need their own page get a link.`)) return;
+  if (!senders.length) return; // no question: the owner chose that the click is enough (2026-11-16)
   const sent = [], none = [], links = [];
   for (const sender of senders) {
     const page = await run(() => provider.listMessages({ folderId: 'ALL', filter: { from: sender } }));
