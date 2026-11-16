@@ -25,7 +25,7 @@ Try the app first without any setup: run `Start.bat` and click "Open the demo wi
    ```
 
    The first one lets the app read, label and trash mail, and send mail (only when you press Send
-   or confirm an unsubscribe mail). The second one lets it manage filters.
+   or unsubscribe from a sender by mail). The second one lets it manage filters.
 
    For **Empty for good** (Trash and Spam) also add this line. Google asks for it only when you press that button:
 
@@ -43,7 +43,7 @@ Try the app first without any setup: run `Start.bat` and click "Open the demo wi
    export const GOOGLE_CLIENT_ID = '1234-abc.apps.googleusercontent.com';
    ```
 
-10. Run `Start.bat`. The browser opens `http://localhost:8080`. Click **Sign in with Google**.
+10. Run `Start.bat`. The browser opens `http://localhost:8080`. Click **Add a Gmail account**.
     - Google warns "Google hasn't verified this app". That is your own app: **Continue**.
     - Tick both permissions, **Continue**.
 

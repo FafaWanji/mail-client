@@ -36,7 +36,7 @@ account can refuse the sign-in until its administrator approves the app.
    - read and write your mail (move, mark, trash),
    - read and write mailbox settings (inbox rules),
    - read your profile (to show your address),
-   - send mail as you (only when you press Send or confirm an unsubscribe mail).
+   - send mail as you (only when you press Send or unsubscribe from a sender by mail).
 
 No client secret is needed. Do not create one.
 

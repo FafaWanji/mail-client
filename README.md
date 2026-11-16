@@ -11,18 +11,51 @@ A small mail cleaner for Gmail and Outlook that runs on your own computer. Built
 
 Nothing is sent anywhere except to Google or Microsoft. Sign-in tokens stay in the browser's memory and are never written to disk.
 
-## Run it
+## Tutorial
 
-You need [Python 3](https://www.python.org/downloads/) (only to serve the files) and a browser.
+### 1. Install Python
 
-1. Download: **Code > Download ZIP** on this page, then unzip. Or `git clone` this repository.
-2. Try it without any account: run `Start.bat` (Windows) or `python serve.py`, open <http://localhost:8080>,
-   click **Open the demo with sample mail**.
-3. For your own mail, register your own private copy once and paste its ID into `config.js`:
-   - Gmail: [SETUP.md](SETUP.md)
-   - Outlook (personal accounts): [SETUP-OUTLOOK.md](SETUP-OUTLOOK.md)
+The app is plain web files. Python only serves them on your own computer.
 
-Each person registers their own copy. That is free; Google and Microsoft require it for apps that read mail.
+- Windows: install Python 3 from <https://www.python.org/downloads/>.
+  On the first installer screen, tick **Add python.exe to PATH**.
+- macOS and Linux: Python 3 is usually there already. Check with `python3 --version`.
+
+### 2. Download the app
+
+On this page click **Code > Download ZIP** and unzip it anywhere. Or run
+`git clone https://github.com/FafaWanji/mail-client.git`.
+
+### 3. Start it
+
+- Windows: double-click `Start.bat`. A black window opens, then the browser opens
+  <http://localhost:8080>. Keep the black window open while you use the app.
+- macOS and Linux: open a terminal in the folder, run `python3 serve.py`, then open
+  <http://localhost:8080>.
+
+To stop the app, close the black window (or press Ctrl+C in the terminal).
+
+### 4. Try the demo
+
+Click **Open the demo with sample mail**. It needs no account and changes no real mail.
+
+### 5. Connect your own mail
+
+Google and Microsoft only let a registered app read mail. Each person registers their own
+private copy once. It is free and takes about 10 minutes:
+
+- Gmail: follow [SETUP.md](SETUP.md), then paste your client ID into `config.js`.
+- Outlook (personal accounts): follow [SETUP-OUTLOOK.md](SETUP-OUTLOOK.md), then paste your
+  client ID into `config.js`.
+
+Reload the page and click **Add a Gmail account** or **Add an Outlook account**.
+
+### Problems
+
+- `'python' is not recognized`: Python is not on PATH. Reinstall it with **Add python.exe to PATH**
+  ticked, or edit `Start.bat` and replace `python` with `py`.
+- `Address already in use` / error 10048: the app already runs in another window. Close that window.
+- Only the demo link shows: `config.js` has no client ID yet, or it has a typo. Check the quotes.
 
 ## Tests
 
