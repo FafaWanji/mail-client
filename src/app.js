@@ -794,11 +794,15 @@ $('sendersUnsub').onclick = async () => {
     if (done.link) links.push([sender, done.link]);
     else (done.ok ? sent : none).push(sender);
   }
-  // Pages cannot all be opened at once (popup blocker), so each gets its own button.
-  $('unsubLinks').replaceChildren(...links.map(([sender, link]) => el('li', {},
-    el('span', { textContent: `${sender} needs its own page:` }),
-    el('button', { textContent: 'Open unsubscribe page', onclick: () => window.open(link, '_blank', 'noopener,noreferrer') }))));
-  status([sent.length && `Done: ${namesOf(sent)}.`, links.length && `${links.length} need a page, see the list.`, none.length && `Not done: ${namesOf(none)}.`].filter(Boolean).join(' '));
+  // The full result stays on screen until the next run. Pages cannot all be opened at once (popup blocker), so each gets a button.
+  const row = (sender, text) => el('li', {}, el('span', { textContent: `${sender}: ${text}` }));
+  $('unsubLinks').replaceChildren(
+    el('li', {}, el('strong', { textContent: `Unsubscribe finished: ${sent.length} done, ${links.length} need a page, ${none.length} not done.` })),
+    ...sent.map(sender => row(sender, 'unsubscribed')),
+    ...links.map(([sender, link]) => el('li', {}, el('span', { textContent: `${sender}: needs its own page ` }),
+      el('button', { textContent: 'Open unsubscribe page', onclick: () => window.open(link, '_blank', 'noopener,noreferrer') }))),
+    ...none.map(sender => row(sender, 'not done (no unsubscribe info, or the request failed)')));
+  status('Unsubscribe finished, see the list above the senders.');
 };
 $('sendersTrash').onclick = () => trashSenders(pickedList(), false);
 $('sendersBlock').onclick = () => trashSenders(pickedList(), true);
