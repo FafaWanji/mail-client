@@ -18,8 +18,7 @@ account can refuse the sign-in until its administrator approves the app.
 1. Open <https://entra.microsoft.com> and sign in with the account that has the Azure subscription.
 2. **Entra ID > App registrations > New registration**.
 3. Name: `Mail Client`.
-4. Supported account types: **Any Entra ID Tenant + Personal Microsoft accounts**.
-   (Only personal Outlook accounts? **Personal accounts only** works too.)
+4. Supported account types: **Personal accounts only** (or **Any Entra ID Tenant + Personal Microsoft accounts**; both work).
 5. **Register**.
 6. On the Overview page copy the **Application (client) ID**.
 7. Left menu, under Manage: **Authentication > Add Redirect URI**.

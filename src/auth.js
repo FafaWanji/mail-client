@@ -39,7 +39,8 @@ export function googleSignIn(hint, extra = []) {
 }
 
 // ---------- Microsoft (authorization code flow with PKCE, in a popup) ----------
-const MS_LOGIN = 'https://login.microsoftonline.com/common/oauth2/v2.0';
+// consumers: personal accounts only. It works for apps set to "Personal accounts only", which /common/ refuses.
+const MS_LOGIN = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
 const MS_SCOPES = [
   'https://graph.microsoft.com/Mail.ReadWrite',            // read, move, mark
   'https://graph.microsoft.com/MailboxSettings.ReadWrite', // inbox rules
