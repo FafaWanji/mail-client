@@ -38,7 +38,6 @@ export function createCombined(accounts) {
     return summarize(done) ?? done;
   }
   const all = () => accounts.map(a => [a, undefined]);
-  const withRules = () => accounts.filter(a => a.provider.rules !== false);
   function grouped(ids) {
     const out = new Map();
     for (const id of ids) {
@@ -56,7 +55,7 @@ export function createCombined(accounts) {
     name: 'All accounts',
     combined: true,
     support: { predicates: new Set(), actions: new Set() },
-    validateRule: rule => withRules().forEach(a => a.provider.validateRule(rule)),
+    validateRule: rule => accounts.forEach(a => a.provider.validateRule(rule)),
     ownAddress: async () => 'All accounts',
 
     /** Pages from every account, newest first. The page token holds each account's own token. */
@@ -96,8 +95,7 @@ export function createCombined(accounts) {
     countMatching: rule => each(all(), a => a.provider.countMatching(rule), counted),
     applyRuleToExisting: rule => each(all(), a => a.provider.applyRuleToExisting(rule), receipt),
     // The rule is made in every account. Its id lists each part, so deleteRule (and undo) remove all of them.
-    // Accounts without rules for apps (Yahoo) are skipped: their old mail is still handled, new mail is not.
-    createRule: rule => each(withRules().map(a => [a, undefined]), a => a.provider.createRule(rule),
+    createRule: rule => each(all(), a => a.provider.createRule(rule),
       done => ({ id: JSON.stringify(done.map(d => [d.key, d.result.id])) })),
     async deleteRule(id) {
       for (const [key, raw] of JSON.parse(id)) await byKey.get(key)?.provider.deleteRule(raw);

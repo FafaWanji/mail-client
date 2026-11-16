@@ -58,14 +58,3 @@ test('a reply goes out from the account that got the mail', async () => {
   assert.equal(b.provider.sent.length, 1);
   assert.doesNotMatch(b.provider.sent[0].replyTo.id, /\u0001/);
 });
-
-test('accounts without rules for apps are skipped when a rule is made', async () => {
-  const { all, a, b } = setup();
-  b.provider.rules = false;
-  b.provider.createRule = async () => { throw new Error('no rules'); };
-  b.provider.validateRule = () => { throw new Error('no rules'); };
-  const rule = { conditions: { senderContains: ['x.com'] }, exceptions: {}, actions: { delete: true } };
-  all.validateRule(rule);
-  await all.createRule(rule);
-  assert.equal((await a.provider.listRules()).length, 1);
-});

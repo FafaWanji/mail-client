@@ -15,7 +15,6 @@
     <div id="gateAccounts"></div>
     <button id="addGmailGate" hidden>Add a Gmail account</button>
     <button id="addOutlookGate" hidden>Add an Outlook account</button>
-    <button id="addYahooGate">Add a Yahoo account</button>
     <p><a href="?demo=1">Open the demo with sample mail</a></p>
   </div>
 
@@ -26,7 +25,6 @@
       <div class="toolbar">
         <button id="addGmail" hidden>+ Gmail</button>
         <button id="addOutlook" hidden>+ Outlook</button>
-        <button id="addYahoo">+ Yahoo</button>
       </div>
       <nav id="boxes">
         <button data-box="inbox">Inbox</button>
@@ -45,7 +43,7 @@
       <nav>
         <button data-view="senders">Senders</button>
         <button data-view="cleanup">Cleanup</button>
-        <button data-view="rules" class="per-account needs-rules">Rules</button>
+        <button data-view="rules" class="per-account">Rules</button>
         <button data-view="leaks" class="per-account">Leaks <span id="leakCount"></span></button>
         <button id="signOut">Sign out</button>
       </nav>
@@ -75,7 +73,7 @@
           <div class="toolbar" id="readTools" hidden>
             <button id="reply">Reply</button>
             <button id="showImages">Show images</button>
-            <button id="ruleFromMail" class="per-account needs-rules">Rule from this mail</button>
+            <button id="ruleFromMail" class="per-account">Rule from this mail</button>
             <button id="unsubscribe" hidden>Unsubscribe</button>
           </div>
           <iframe id="frame" title="Mail content" hidden></iframe>
@@ -110,8 +108,8 @@
           <label><input type="checkbox" id="sendersAll"> All</label>
           <button id="sendersShow">Show mail</button>
           <button id="sendersTrash">Trash all</button>
-          <button id="sendersBlock" class="needs-rules">Trash + block</button>
-          <button id="sendersMove" class="per-account needs-rules">Move to folder + rule</button>
+          <button id="sendersBlock">Trash + block</button>
+          <button id="sendersMove" class="per-account">Move to folder + rule</button>
           <button id="sendersUnsub">Unsubscribe</button>
           <span id="sendersPicked" class="muted"></span>
         </div>
@@ -152,19 +150,6 @@
       <p id="composeError" class="error" role="alert"></p>
       <div class="toolbar">
         <button value="send">Send</button>
-        <button value="">Cancel</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="yahooDialog">
-    <form method="dialog">
-      <h3>Add a Yahoo account</h3>
-      <p class="muted">Use an app password, not your Yahoo password. SETUP-YAHOO.md says how to make one.<br>It is kept in memory only and asked again next time.</p>
-      <input id="yahooUser" type="email" autocomplete="username" placeholder="name@yahoo.com" aria-label="Yahoo address">
-      <input id="yahooPassword" type="password" autocomplete="off" placeholder="App password" aria-label="App password">
-      <div class="toolbar">
-        <button value="ok">Sign in</button>
         <button value="">Cancel</button>
       </div>
     </form>
