@@ -371,8 +371,7 @@ async function unsubscribe(info, name, source) {
   }
   if (info.mailto && provider.sendMail) {
     const { to, subject, body } = mailtoParts(info.mailto);
-    if (!confirm(`${name} unsubscribes by mail. Send "${subject}" from ${source.account || me} to ${to}?`)) return { ok: false, text: 'Nothing sent.' };
-    // viaId: in the combined view the mail goes out from the account that got `source`.
+    // Sent without asking: the owner chose that the Unsubscribe click is enough (2026-11-16). viaId: in the combined view the mail goes out from the account that got `source`.
     const sent = await run(() => provider.sendMail({ to, subject, text: body, viaId: source.id }).then(() => true));
     return { ok: Boolean(sent), text: sent ? `Unsubscribe mail sent to ${to}.` : '' };
   }
@@ -780,7 +779,7 @@ $('sendersShow').onclick = () => {
 };
 $('sendersUnsub').onclick = async () => {
   const senders = pickedList();
-  if (!senders.length || !confirm(`Unsubscribe from ${namesOf(senders)}? One-click requests go out at once; the others show a link or ask first.`)) return;
+  if (!senders.length || !confirm(`Unsubscribe from ${namesOf(senders)}? Requests and unsubscribe mails go out at once; senders that need their own page get a link.`)) return;
   const sent = [], none = [], links = [];
   for (const sender of senders) {
     const page = await run(() => provider.listMessages({ folderId: 'ALL', filter: { from: sender } }));
