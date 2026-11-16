@@ -2,6 +2,7 @@
 import { googleSignIn, microsoftSignIn, GOOGLE_ID, MICROSOFT_ID, GOOGLE_FULL } from './auth.js';
 import { createGmail, AuthExpired } from './gmail.js';
 import { createOutlook } from './outlook.js';
+import { createYahoo } from './yahoo.js';
 import { createDemo } from './demo.js';
 import { createCombined, combinedId, AccountFailed } from './combined.js';
 import { buildFrameDoc, FRAME_SANDBOX } from './mailbody.js';
@@ -99,6 +100,7 @@ async function run(fn) {
 const KINDS = {
   gmail: { label: 'Gmail', id: GOOGLE_ID, signIn: googleSignIn, create: createGmail },
   outlook: { label: 'Outlook', id: MICROSOFT_ID, signIn: microsoftSignIn, create: createOutlook },
+  yahoo: { label: 'Yahoo', id: 'no setup needed', signIn: yahooSignIn, create: createYahoo },
 };
 // Only kind and address are remembered, never a token. Each session signs in again.
 const remembered = () => load('accounts', []).filter(a => KINDS[a.kind]);
@@ -126,10 +128,28 @@ function showGate(text) {
   $('addOutlookGate').hidden = !MICROSOFT_ID;
 }
 
+/** Yahoo has no sign-in page for apps of your own: the address and an app password are asked here, kept in memory only. */
+function yahooSignIn(hint) {
+  const dialog = $('yahooDialog');
+  $('yahooUser').value = hint || '';
+  $('yahooPassword').value = '';
+  return new Promise((resolve, reject) => {
+    dialog.onclose = () => {
+      const user = $('yahooUser').value.trim(), token = $('yahooPassword').value.replace(/\s+/g, '');
+      $('yahooPassword').value = ''; // not left in the page
+      if (dialog.returnValue !== 'ok' || !user || !token) return reject(new Error('Yahoo sign-in was closed.'));
+      resolve({ user, token });
+    };
+    dialog.returnValue = '';
+    dialog.showModal();
+  });
+}
+
 /** Signs in and returns the connected account. `hint` is the address to preselect. */
 async function connect(kind, hint) {
-  const account = { kind, token: await KINDS[kind].signIn(hint) };
-  account.provider = KINDS[kind].create({ getToken: () => account.token });
+  const signed = await KINDS[kind].signIn(hint); // a token, or { user, token } for Yahoo
+  const account = { kind, token: signed.token ?? signed };
+  account.provider = KINDS[kind].create({ getToken: () => account.token, user: signed.user });
   account.address = await account.provider.ownAddress();
   const index = accounts.findIndex(a => sameAccount(a, account));
   if (index >= 0) accounts[index] = account; else accounts.push(account);
@@ -180,6 +200,7 @@ async function switchTo(account) {
   renderAccounts();
   // Folders, rules, aliases, leaks and writing new mail belong to one account: hidden in the combined view.
   document.body.classList.toggle('combined', Boolean(account.combined));
+  document.body.classList.toggle('no-rules', account.provider.rules === false); // Yahoo: no filters for apps
   if (account.combined) {
     // Each account's own sent mail is dropped here, because the senders list knows only one own address.
     const caches = await Promise.all(accounts.map(async a => (await loadScan(a.address))
@@ -199,7 +220,7 @@ async function switchTo(account) {
   scan();
 }
 
-for (const [id, kind] of [['addGmail', 'gmail'], ['addGmailGate', 'gmail'], ['addOutlook', 'outlook'], ['addOutlookGate', 'outlook']]) {
+for (const [id, kind] of [['addGmail', 'gmail'], ['addGmailGate', 'gmail'], ['addOutlook', 'outlook'], ['addOutlookGate', 'outlook'], ['addYahoo', 'yahoo'], ['addYahooGate', 'yahoo']]) {
   $(id).onclick = () => addAccount(kind);
 }
 $('signOut').onclick = () => location.reload(); // tokens live in memory only, so a reload signs every account out
@@ -564,7 +585,7 @@ function refreshSidebar() {
   const rows = [...counts].sort((a, b) => b[1] - a[1]).map(([alias, count]) => el('li', {},
     el('button', { className: 'link', textContent: `+${alias}`, onclick: () => openBox({ title: `+${alias}`, filter: aliasFilter(alias) }) }),
     el('span', { className: 'count', textContent: count }),
-    el('button', { textContent: 'Folder', title: `Sort +${alias} into a folder`, onclick: () => aliasToFolder(alias) })));
+    el('button', { textContent: 'Folder', className: 'needs-rules', title: `Sort +${alias} into a folder`, onclick: () => aliasToFolder(alias) })));
   $('aliases').replaceChildren(...rows);
   if (!rows.length) $('aliases').append(el('li', { className: 'muted', textContent: 'No +alias mail found.' }));
   const flagged = leakReport(aliasRecords, trusted()).filter(a => a.flagged).length;
@@ -905,7 +926,7 @@ function renderLeaks() {
         el('span', { className: 'count', textContent: d.count }),
         real ? el('button', { textContent: 'Show mail', onclick: () => openBox({ title: `+${entry.alias} from ${d.domain}`, filter: { ...aliasFilter(entry.alias), from: d.domain } }) }) : null,
         foreign && !d.trusted ? el('button', { textContent: 'Trust', onclick: () => trust(entry.alias, d.domain) }) : null,
-        foreign && real ? el('button', { textContent: 'Block', onclick: () => block(entry.alias, d.domain) }) : null);
+        foreign && real ? el('button', { textContent: 'Block', className: 'needs-rules', onclick: () => block(entry.alias, d.domain) }) : null);
     })))));
   if (!report.length) $('leaks').append(el('p', { className: 'muted', textContent: 'No +alias mail found yet.' }));
 }
